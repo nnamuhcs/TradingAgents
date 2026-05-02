@@ -114,6 +114,18 @@ MODEL_OPTIONS: ProviderModeOptions = {
             ("Qwen3:latest (8B, local)", "qwen3:latest"),
         ],
     },
+    "github-copilot": {
+        "quick": [
+            ("Claude Sonnet 4 - Fast, balanced", "claude-sonnet-4"),
+            ("GPT-5.4 - Latest frontier", "gpt-5.4"),
+            ("Claude Sonnet 4.6 - Best speed/intelligence", "claude-sonnet-4.6"),
+        ],
+        "deep": [
+            ("Claude Opus 4.6 - Most intelligent", "claude-opus-4.6"),
+            ("GPT-5.4 - Latest frontier", "gpt-5.4"),
+            ("Claude Sonnet 4 - Fast, balanced", "claude-sonnet-4"),
+        ],
+    },
 }
 
 

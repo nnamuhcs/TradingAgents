@@ -117,6 +117,7 @@ _PROVIDER_CONFIG = {
     "glm": ("https://api.z.ai/api/paas/v4/", "ZHIPU_API_KEY"),
     "openrouter": ("https://openrouter.ai/api/v1", "OPENROUTER_API_KEY"),
     "ollama": ("http://localhost:11434/v1", None),
+    "github-copilot": ("https://api.githubcopilot.com", "GITHUB_TOKEN"),
 }
 
 
@@ -168,6 +169,20 @@ class OpenAIClient(BaseLLMClient):
         # all model families. Third-party providers use Chat Completions.
         if self.provider == "openai":
             llm_kwargs["use_responses_api"] = True
+
+        # GitHub Copilot uses standard Chat Completions, not Responses API
+        if self.provider == "github-copilot":
+            llm_kwargs.pop("use_responses_api", None)
+
+        # GitHub Copilot requires integration header and uses /chat/completions
+        if self.provider == "github-copilot":
+            import httpx
+            llm_kwargs["http_client"] = httpx.Client(
+                headers={"Copilot-Integration-Id": "vscode-chat"},
+            )
+            llm_kwargs["http_async_client"] = httpx.AsyncClient(
+                headers={"Copilot-Integration-Id": "vscode-chat"},
+            )
 
         # DeepSeek's thinking-mode quirks live in their own subclass so the
         # base NormalizedChatOpenAI stays free of provider-specific branches.
