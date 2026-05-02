@@ -38,6 +38,134 @@ def get_ticker() -> str:
     return normalize_ticker_symbol(ticker)
 
 
+def select_ticker_source() -> str:
+    """Ask whether to enter a ticker manually or use the Market Scanner.
+
+    Returns one of: 'manual', 'scan-5', 'scan-10', 'scan-20'.
+    """
+    choice = questionary.select(
+        "How do you want to choose the ticker?",
+        choices=[
+            questionary.Choice("Type a ticker symbol myself", value="manual"),
+            questionary.Choice("Let the Market Scanner pick top 5 (fastest)", value="scan-5"),
+            questionary.Choice("Let the Market Scanner pick top 10", value="scan-10"),
+            questionary.Choice("Let the Market Scanner pick top 20 (slowest)", value="scan-20"),
+        ],
+        instruction="\n- Use arrow keys to navigate\n- Press Enter to select",
+        style=questionary.Style(
+            [
+                ("selected", "fg:magenta noinherit"),
+                ("highlighted", "fg:magenta noinherit"),
+                ("pointer", "fg:magenta noinherit"),
+            ]
+        ),
+    ).ask()
+    if choice is None:
+        console.print("\n[red]No choice made. Exiting...[/red]")
+        exit(1)
+    return choice
+
+
+def run_scanner_and_pick(max_picks: int, llm_provider: str | None = None,
+                         scanner_model: str | None = None) -> str:
+    """Run the MarketScanner with a live status spinner, then let the user pick
+    one of the recommended tickers to analyze.
+
+    Returns the chosen ticker symbol (uppercase).
+    """
+    import os
+    from tradingagents.scanner import MarketScanner
+    from rich.table import Table
+
+    provider = llm_provider or os.getenv("LLM_PROVIDER", "github-copilot")
+    model = scanner_model or os.getenv("SCANNER_LLM") or os.getenv("DEEP_THINK_LLM", "claude-opus-4.7")
+
+    console.print(
+        f"\n[bold]Market Scanner running[/bold] — provider=[cyan]{provider}[/cyan], "
+        f"model=[cyan]{model}[/cyan], max_picks=[cyan]{max_picks}[/cyan]"
+    )
+    console.print(
+        "[dim]This screens the S&P 500 across quant signals, event catalysts, smart-money "
+        "activity, then runs LLM synthesis. Typically 1–3 minutes.[/dim]\n"
+    )
+
+    with console.status("[bold cyan]Scanning market...[/bold cyan]", spinner="dots"):
+        scanner = MarketScanner(provider=provider, model=model)
+        result = scanner.scan()
+
+    detailed = result.get("detailed", {})
+    picks = (detailed.get("picks") or [])[:max_picks]
+    candidates = detailed.get("candidates", [])
+
+    if not picks:
+        console.print("[red]Scanner returned no picks. Falling back to manual entry.[/red]")
+        return get_ticker()
+
+    table = Table(title=f"Scanner Picks (top {len(picks)})", show_lines=False)
+    table.add_column("#", style="dim", width=3)
+    table.add_column("Symbol", style="bold cyan")
+    table.add_column("Conviction", style="bold")
+    table.add_column("Signals", style="dim")
+    table.add_column("Reasoning")
+
+    conviction_color = {"high": "green", "medium": "yellow", "low": "white"}
+
+    for i, pick in enumerate(picks, 1):
+        conv = (pick.get("conviction") or "?").lower()
+        cand = next((c for c in candidates if c["symbol"] == pick["symbol"]), None)
+        signals = []
+        if cand:
+            if cand.get("rs_1m") is not None:
+                signals.append(f"RS1m={cand['rs_1m']:+.1f}%")
+            if cand.get("vol_ratio") is not None:
+                signals.append(f"Vol={cand['vol_ratio']:.1f}x")
+            if cand.get("rsi") is not None:
+                signals.append(f"RSI={cand['rsi']:.0f}")
+            if cand.get("at_20d_high"):
+                signals.append("20dHigh")
+            if cand.get("events"):
+                signals.append("Events")
+            if cand.get("smart_money_signals"):
+                signals.append("Smart$")
+        table.add_row(
+            str(i),
+            pick["symbol"],
+            f"[{conviction_color.get(conv, 'white')}]{conv.upper()}[/]",
+            " | ".join(signals) or "-",
+            (pick.get("reasoning") or "")[:90],
+        )
+
+    if detailed.get("market_regime"):
+        console.print(f"[bold]Market Regime:[/bold] {detailed['market_regime']}")
+    if detailed.get("themes"):
+        console.print(f"[bold]Themes:[/bold] {', '.join(detailed['themes'])}")
+    console.print(table)
+
+    chosen = questionary.select(
+        "Which one do you want to deep-analyze?",
+        choices=[
+            questionary.Choice(
+                f"{p['symbol']:<6}  [{(p.get('conviction') or '?').upper()}]  "
+                f"{(p.get('reasoning') or '')[:70]}",
+                value=p["symbol"],
+            )
+            for p in picks
+        ] + [questionary.Choice("(none — let me type a ticker manually)", value="__manual__")],
+        instruction="\n- Use arrow keys to navigate\n- Press Enter to select",
+        style=questionary.Style(
+            [
+                ("selected", "fg:magenta noinherit"),
+                ("highlighted", "fg:magenta noinherit"),
+                ("pointer", "fg:magenta noinherit"),
+            ]
+        ),
+    ).ask()
+
+    if chosen is None or chosen == "__manual__":
+        return get_ticker()
+    return normalize_ticker_symbol(chosen)
+
+
 def normalize_ticker_symbol(ticker: str) -> str:
     """Normalize ticker input while preserving exchange suffixes."""
     return ticker.strip().upper()

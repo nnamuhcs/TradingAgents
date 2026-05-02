@@ -168,6 +168,7 @@ Any of these env vars (set in the ConfigMap or via `kubectl exec -- env VAR=...`
 | Env var | Skips |
 |---|---|
 | `TA_TICKER` | Step 1 (ticker) |
+| `TA_TICKER_SOURCE` | Step 1 source choice (`manual`, `scan-5`, `scan-10`, `scan-20`) |
 | `TA_DATE` | Step 2 (analysis date) |
 | `TA_LANGUAGE` | Step 3 (output language) |
 | `TA_ANALYSTS` | Step 4 (analysts; csv: `market,social,news,fundamentals`) |
@@ -338,6 +339,7 @@ This fork adds the following on top of the original TradingAgents framework:
 ### Env-Driven TUI (interactive `tradingagents` CLI)
 - The TUI now consults env vars before each prompt (`LLM_PROVIDER`, `DEEP_THINK_LLM`, `QUICK_THINK_LLM`, plus `TA_*` overrides) and skips any step that's already set — letting you pre-fill provider+models from a ConfigMap while still answering ticker/date/analyst/depth interactively.
 - Adds `github-copilot` to the provider URL map (the upstream provider menu doesn't list it, but env-var override bypasses that).
+- **Step 1 now offers a Market Scanner branch**: instead of typing a ticker you can ask the scanner to recommend top 5 / 10 / 20 stocks, then pick one to deep-analyze. Set `TA_TICKER_SOURCE=manual|scan-5|scan-10|scan-20` to skip the prompt.
 - Switched the live `Rich.Live` renderer to **alt-screen mode** (`screen=True`) to eliminate flicker when run inside `kubectl exec -it`.
 
 ### Env-Driven `main_copilot.py` (non-interactive)

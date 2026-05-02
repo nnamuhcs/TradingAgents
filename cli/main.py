@@ -523,7 +523,7 @@ def get_user_selections():
             box_content += f"\n[dim]Default: {default}[/dim]"
         return Panel(box_content, border_style="blue", padding=(1, 2))
 
-    # Step 1: Ticker symbol
+    # Step 1: Ticker symbol — manual or via Market Scanner
     env_ticker = os.getenv("TA_TICKER")
     if env_ticker:
         selected_ticker = env_ticker.upper()
@@ -531,12 +531,39 @@ def get_user_selections():
     else:
         console.print(
             create_question_box(
-                "Step 1: Ticker Symbol",
-                "Enter the exact ticker symbol to analyze, including exchange suffix when needed (examples: SPY, CNC.TO, 7203.T, 0700.HK)",
-                "SPY",
+                "Step 1: Ticker Source",
+                "Choose your ticker manually, or let the Market Scanner pick (5/10/20)",
             )
         )
-        selected_ticker = get_ticker()
+        env_source = (os.getenv("TA_TICKER_SOURCE") or "").strip().lower()
+        valid_sources = {"manual", "scan-5", "scan-10", "scan-20"}
+        ticker_source = env_source if env_source in valid_sources else select_ticker_source()
+
+        if ticker_source == "manual":
+            console.print(
+                create_question_box(
+                    "Step 1b: Ticker Symbol",
+                    "Enter the exact ticker symbol (examples: SPY, CNC.TO, 7203.T, 0700.HK)",
+                    "SPY",
+                )
+            )
+            selected_ticker = get_ticker()
+        else:
+            n_picks = int(ticker_source.split("-")[1])
+            scanner_provider = (
+                os.getenv("LLM_PROVIDER") or "github-copilot"
+            )
+            scanner_model = (
+                os.getenv("SCANNER_LLM")
+                or os.getenv("DEEP_THINK_LLM")
+                or "claude-opus-4.7"
+            )
+            selected_ticker = run_scanner_and_pick(
+                max_picks=n_picks,
+                llm_provider=scanner_provider,
+                scanner_model=scanner_model,
+            )
+            console.print(f"[green]✓ Selected from scanner:[/green] {selected_ticker}")
 
     # Step 2: Analysis date
     env_date = os.getenv("TA_DATE")
