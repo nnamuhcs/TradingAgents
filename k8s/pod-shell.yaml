@@ -1,0 +1,45 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ta-shell
+  namespace: tradingagents
+  labels:
+    app.kubernetes.io/name: tradingagents
+    app.kubernetes.io/component: shell
+spec:
+  restartPolicy: Always
+  containers:
+    - name: ta-shell
+      image: tradingagents:latest
+      imagePullPolicy: IfNotPresent
+      stdin: true
+      tty: true
+      command: ["sleep", "infinity"]
+      env:
+        - name: TERM
+          value: "xterm-256color"
+        - name: FORCE_COLOR
+          value: "1"
+        - name: COLORTERM
+          value: "truecolor"
+        - name: PYTHONUNBUFFERED
+          value: "1"
+      envFrom:
+        - configMapRef:
+            name: tradingagents-config
+        - secretRef:
+            name: tradingagents-secrets
+      volumeMounts:
+        - name: data
+          mountPath: /home/appuser/.tradingagents
+      resources:
+        requests:
+          cpu: "200m"
+          memory: "256Mi"
+        limits:
+          cpu: "2"
+          memory: "2Gi"
+  volumes:
+    - name: data
+      persistentVolumeClaim:
+        claimName: tradingagents-data

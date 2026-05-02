@@ -460,8 +460,32 @@ def update_display(layout, spinner_text=None, stats_handler=None, start_time=Non
     layout["footer"].update(Panel(stats_table, border_style="grey50"))
 
 
+_PROVIDER_BASE_URLS = {
+    "openai": "https://api.openai.com/v1",
+    "google": None,
+    "anthropic": "https://api.anthropic.com/",
+    "xai": "https://api.x.ai/v1",
+    "deepseek": "https://api.deepseek.com",
+    "qwen": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    "glm": "https://open.bigmodel.cn/api/paas/v4/",
+    "openrouter": "https://openrouter.ai/api/v1",
+    "azure": None,
+    "ollama": "http://localhost:11434/v1",
+    "github-copilot": "https://api.githubcopilot.com",
+}
+
+
 def get_user_selections():
-    """Get all user selections before starting the analysis display."""
+    """Get all user selections before starting the analysis display.
+
+    Env var overrides (skip the corresponding prompt when set):
+      TA_TICKER, TA_DATE, TA_LANGUAGE, TA_ANALYSTS (csv: market,social,news,fundamentals),
+      TA_RESEARCH_DEPTH, LLM_PROVIDER, QUICK_THINK_LLM, DEEP_THINK_LLM,
+      TA_BACKEND_URL, TA_OPENAI_REASONING_EFFORT, TA_ANTHROPIC_EFFORT,
+      TA_GOOGLE_THINKING_LEVEL.
+    """
+    import os
+
     # Display ASCII art welcome message
     with open(Path(__file__).parent / "static" / "welcome.txt", "r", encoding="utf-8") as f:
         welcome_ascii = f.read()
@@ -500,78 +524,128 @@ def get_user_selections():
         return Panel(box_content, border_style="blue", padding=(1, 2))
 
     # Step 1: Ticker symbol
-    console.print(
-        create_question_box(
-            "Step 1: Ticker Symbol",
-            "Enter the exact ticker symbol to analyze, including exchange suffix when needed (examples: SPY, CNC.TO, 7203.T, 0700.HK)",
-            "SPY",
+    env_ticker = os.getenv("TA_TICKER")
+    if env_ticker:
+        selected_ticker = env_ticker.upper()
+        console.print(f"[green]✓ Ticker (from env):[/green] {selected_ticker}")
+    else:
+        console.print(
+            create_question_box(
+                "Step 1: Ticker Symbol",
+                "Enter the exact ticker symbol to analyze, including exchange suffix when needed (examples: SPY, CNC.TO, 7203.T, 0700.HK)",
+                "SPY",
+            )
         )
-    )
-    selected_ticker = get_ticker()
+        selected_ticker = get_ticker()
 
     # Step 2: Analysis date
-    default_date = datetime.datetime.now().strftime("%Y-%m-%d")
-    console.print(
-        create_question_box(
-            "Step 2: Analysis Date",
-            "Enter the analysis date (YYYY-MM-DD)",
-            default_date,
+    env_date = os.getenv("TA_DATE")
+    if env_date:
+        analysis_date = env_date
+        console.print(f"[green]✓ Date (from env):[/green] {analysis_date}")
+    else:
+        default_date = datetime.datetime.now().strftime("%Y-%m-%d")
+        console.print(
+            create_question_box(
+                "Step 2: Analysis Date",
+                "Enter the analysis date (YYYY-MM-DD)",
+                default_date,
+            )
         )
-    )
-    analysis_date = get_analysis_date()
+        analysis_date = get_analysis_date()
 
     # Step 3: Output language
-    console.print(
-        create_question_box(
-            "Step 3: Output Language",
-            "Select the language for analyst reports and final decision"
+    env_lang = os.getenv("TA_LANGUAGE")
+    if env_lang:
+        output_language = env_lang
+        console.print(f"[green]✓ Output language (from env):[/green] {output_language}")
+    else:
+        console.print(
+            create_question_box(
+                "Step 3: Output Language",
+                "Select the language for analyst reports and final decision"
+            )
         )
-    )
-    output_language = ask_output_language()
+        output_language = ask_output_language()
 
     # Step 4: Select analysts
-    console.print(
-        create_question_box(
-            "Step 4: Analysts Team", "Select your LLM analyst agents for the analysis"
+    env_analysts = os.getenv("TA_ANALYSTS")
+    if env_analysts:
+        from cli.models import AnalystType
+        wanted = [a.strip().lower() for a in env_analysts.split(",") if a.strip()]
+        selected_analysts = [AnalystType(a) for a in wanted]
+        console.print(
+            f"[green]✓ Analysts (from env):[/green] {', '.join(a.value for a in selected_analysts)}"
         )
-    )
-    selected_analysts = select_analysts()
-    console.print(
-        f"[green]Selected analysts:[/green] {', '.join(analyst.value for analyst in selected_analysts)}"
-    )
+    else:
+        console.print(
+            create_question_box(
+                "Step 4: Analysts Team", "Select your LLM analyst agents for the analysis"
+            )
+        )
+        selected_analysts = select_analysts()
+        console.print(
+            f"[green]Selected analysts:[/green] {', '.join(analyst.value for analyst in selected_analysts)}"
+        )
 
     # Step 5: Research depth
-    console.print(
-        create_question_box(
-            "Step 5: Research Depth", "Select your research depth level"
+    env_depth = os.getenv("TA_RESEARCH_DEPTH")
+    if env_depth:
+        selected_research_depth = int(env_depth)
+        console.print(f"[green]✓ Research depth (from env):[/green] {selected_research_depth}")
+    else:
+        console.print(
+            create_question_box(
+                "Step 5: Research Depth", "Select your research depth level"
+            )
         )
-    )
-    selected_research_depth = select_research_depth()
+        selected_research_depth = select_research_depth()
 
     # Step 6: LLM Provider
-    console.print(
-        create_question_box(
-            "Step 6: LLM Provider", "Select your LLM provider"
+    env_provider = os.getenv("LLM_PROVIDER")
+    if env_provider:
+        selected_llm_provider = env_provider.lower()
+        backend_url = os.getenv("TA_BACKEND_URL") or _PROVIDER_BASE_URLS.get(
+            selected_llm_provider
         )
-    )
-    selected_llm_provider, backend_url = select_llm_provider()
+        console.print(
+            f"[green]✓ LLM provider (from env):[/green] {selected_llm_provider}"
+            + (f" → {backend_url}" if backend_url else "")
+        )
+    else:
+        console.print(
+            create_question_box(
+                "Step 6: LLM Provider", "Select your LLM provider"
+            )
+        )
+        selected_llm_provider, backend_url = select_llm_provider()
 
     # Step 7: Thinking agents
-    console.print(
-        create_question_box(
-            "Step 7: Thinking Agents", "Select your thinking agents for analysis"
+    env_quick = os.getenv("QUICK_THINK_LLM")
+    env_deep = os.getenv("DEEP_THINK_LLM")
+    if env_quick and env_deep:
+        selected_shallow_thinker = env_quick
+        selected_deep_thinker = env_deep
+        console.print(
+            f"[green]✓ Quick model (from env):[/green] {selected_shallow_thinker}\n"
+            f"[green]✓ Deep model  (from env):[/green] {selected_deep_thinker}"
         )
-    )
-    selected_shallow_thinker = select_shallow_thinking_agent(selected_llm_provider)
-    selected_deep_thinker = select_deep_thinking_agent(selected_llm_provider)
+    else:
+        console.print(
+            create_question_box(
+                "Step 7: Thinking Agents", "Select your thinking agents for analysis"
+            )
+        )
+        selected_shallow_thinker = env_quick or select_shallow_thinking_agent(selected_llm_provider)
+        selected_deep_thinker = env_deep or select_deep_thinking_agent(selected_llm_provider)
 
     # Step 8: Provider-specific thinking configuration
-    thinking_level = None
-    reasoning_effort = None
-    anthropic_effort = None
+    thinking_level = os.getenv("TA_GOOGLE_THINKING_LEVEL")
+    reasoning_effort = os.getenv("TA_OPENAI_REASONING_EFFORT")
+    anthropic_effort = os.getenv("TA_ANTHROPIC_EFFORT")
 
     provider_lower = selected_llm_provider.lower()
-    if provider_lower == "google":
+    if provider_lower == "google" and not thinking_level:
         console.print(
             create_question_box(
                 "Step 8: Thinking Mode",
@@ -579,7 +653,7 @@ def get_user_selections():
             )
         )
         thinking_level = ask_gemini_thinking_config()
-    elif provider_lower == "openai":
+    elif provider_lower == "openai" and not reasoning_effort:
         console.print(
             create_question_box(
                 "Step 8: Reasoning Effort",
@@ -587,7 +661,7 @@ def get_user_selections():
             )
         )
         reasoning_effort = ask_openai_reasoning_effort()
-    elif provider_lower == "anthropic":
+    elif provider_lower == "anthropic" and not anthropic_effort:
         console.print(
             create_question_box(
                 "Step 8: Effort Level",
@@ -1017,7 +1091,7 @@ def run_analysis(checkpoint: bool = False):
     # Now start the display layout
     layout = create_layout()
 
-    with Live(layout, refresh_per_second=4) as live:
+    with Live(layout, refresh_per_second=4, screen=True, vertical_overflow="visible") as live:
         # Initial display
         update_display(layout, stats_handler=stats_handler, start_time=start_time)
 
