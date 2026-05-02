@@ -405,6 +405,39 @@ section .row label input { width: 70px; }
 .ticker-item strong { color: var(--amber); font-weight: 700; letter-spacing: 0.05em; }
 .ticker-item .up   { color: var(--green); }
 .ticker-item .down { color: var(--red); }
+.ticker-item.kind-anchor { color: var(--amber-bright); }
+.ticker-item.kind-anchor strong { color: var(--amber-bright); }
+.ticker-item.kind-pinned strong { color: var(--cyan); }
+.ticker-item.kind-recent strong { color: var(--magenta); }
+.ticker-item.kind-gainer strong { color: var(--green); }
+.ticker-item.kind-loser  strong { color: var(--red); }
+
+/* Settings popover ----------------------------------------------- */
+.settings-popover {
+  position: absolute; right: 12px; top: 70px;
+  background: var(--bg-panel); border: 1px solid var(--amber);
+  padding: 12px 16px; min-width: 320px; z-index: 50;
+  box-shadow: 0 0 0 1px var(--bg) inset, 0 4px 12px rgba(0,0,0,0.6);
+}
+.settings-popover h3 { margin-top: 0; }
+.settings-popover .muted { color: var(--fg-muted); font-size: 10.5px; margin: 4px 0 8px; }
+.settings-popover .pin-row { display: flex; gap: 6px; margin-bottom: 10px; }
+.settings-popover .pin-row input { flex: 1; }
+.settings-popover .pin-list { display: flex; gap: 6px; flex-wrap: wrap; }
+.pin-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  border: 1px solid var(--amber-dim); padding: 2px 4px 2px 8px;
+  font-size: 11px; color: var(--amber); letter-spacing: 0.05em;
+}
+.pin-chip strong { color: var(--amber-bright); }
+.pin-chip .chip-x {
+  background: transparent; border: none; color: var(--red);
+  padding: 0 4px; font-size: 14px; line-height: 1;
+  cursor: pointer; font-weight: 700;
+}
+.pin-chip .chip-x:hover { color: var(--red); background: rgba(255,59,59,0.15); }
+
+footer.status-bar .warn { color: var(--yellow); }
 
 @keyframes ticker-scroll {
   from { transform: translateX(0); }

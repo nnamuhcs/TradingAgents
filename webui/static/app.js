@@ -15,6 +15,10 @@ function app() {
 
     clockNow: '',
     marketTicker: [],
+  pinned: JSON.parse(localStorage.getItem('ta_pinned') || '[]'),
+  showSettings: false,
+  newPin: '',
+  liveStreamConnected: false,
 
     form: {
       ticker_source: 'manual',
@@ -33,8 +37,55 @@ function app() {
     init() {
       this.tickClock();
       setInterval(() => this.tickClock(), 1000);
-      this.refreshTicker();
-      setInterval(() => this.refreshTicker(), 60000);
+      this.subscribeMarketStream();
+    },
+
+    subscribeMarketStream() {
+      const params = new URLSearchParams({ pinned: this.pinned.join(',') });
+      const es = new EventSource(`/api/movers/stream?${params}`);
+      es.addEventListener('snapshot', (e) => {
+        try {
+          const { feed, live } = JSON.parse(e.data);
+          this.liveStreamConnected = !!live;
+          if (Array.isArray(feed) && feed.length) {
+            this.marketTicker = feed.map(x => ({
+              s: x.s,
+              p: x.p,
+              c: x.c,
+              kind: x.kind || 'item',
+              live: !!x.live,
+            }));
+          }
+        } catch (err) {
+          console.warn('marquee snapshot parse error', err);
+        }
+      });
+      es.onerror = () => {
+        // EventSource auto-reconnects; just log
+      };
+      this._marqueeStream = es;
+    },
+
+    addPin() {
+      const sym = (this.newPin || '').trim().toUpperCase();
+      if (!sym) return;
+      if (!this.pinned.includes(sym)) {
+        this.pinned = [...this.pinned, sym];
+        localStorage.setItem('ta_pinned', JSON.stringify(this.pinned));
+        this.refreshMarqueeStream();
+      }
+      this.newPin = '';
+    },
+
+    removePin(sym) {
+      this.pinned = this.pinned.filter(s => s !== sym);
+      localStorage.setItem('ta_pinned', JSON.stringify(this.pinned));
+      this.refreshMarqueeStream();
+    },
+
+    refreshMarqueeStream() {
+      if (this._marqueeStream) this._marqueeStream.close();
+      this.subscribeMarketStream();
     },
 
     tickClock() {
@@ -50,23 +101,14 @@ function app() {
     },
 
     async refreshTicker() {
-      // Pull a small set of bellwether tickers so the bar always has something.
-      const watchlist = ['SPY', 'QQQ', 'DIA', 'IWM', '^VIX', 'NVDA', 'AAPL', 'MSFT', 'GOOG', 'TSLA', 'BTC-USD'];
+      // Kept for backwards-compat; not used in live-stream mode.
       try {
-        const tasks = watchlist.map(s =>
-          fetch(`/api/chart/${encodeURIComponent(s)}?period=5d`).then(r => r.ok ? r.json() : null).catch(() => null)
-        );
-        const results = await Promise.all(tasks);
-        const out = [];
-        for (const d of results) {
-          if (!d || !d.close || d.close.length < 2) continue;
-          const last = d.close[d.close.length - 1];
-          const prev = d.close[d.close.length - 2];
-          if (last == null || prev == null) continue;
-          const c = ((last - prev) / prev) * 100;
-          out.push({ s: (d.symbol || '').replace('^', ''), p: last, c });
+        const res = await fetch('/api/movers?n_gainers=10&n_losers=10&pinned=' + encodeURIComponent(this.pinned.join(',')));
+        if (!res.ok) return;
+        const { feed } = await res.json();
+        if (Array.isArray(feed) && feed.length) {
+          this.marketTicker = feed.map(x => ({ s: x.s, p: x.p, c: x.c, kind: x.kind || 'item' }));
         }
-        if (out.length) this.marketTicker = out;
       } catch (e) {
         console.warn('ticker refresh failed', e);
       }

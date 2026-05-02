@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -28,6 +29,7 @@ from tradingagents.scanner import MarketScanner
 from webui.charts import get_ohlcv
 from webui.db import Run, get_sessionmaker, init_db
 from webui.events import bus
+from webui.movers import get_movers
 from webui.runner import kick_off
 
 
@@ -53,6 +55,23 @@ app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 async def _startup() -> None:
     await init_db()
     logger.info("DB initialized")
+    # Kick off Yahoo Live WebSocket with the default anchor set; the SSE
+    # stream will dynamically extend the subscription with whatever ends
+    # up in the marquee feed.
+    try:
+        from webui.movers import ANCHORS, get_movers
+        from webui.yahoo_live import ticker
+        await ticker.start([s for s in ANCHORS if s])
+        logger.info("Yahoo Live WebSocket started")
+        # Warm the movers cache so the first SSE yield doesn't block 30s on
+        # yfinance screening of the S&P 500 universe.
+        import asyncio
+        asyncio.create_task(asyncio.get_event_loop().run_in_executor(
+            None, lambda: get_movers(n_gainers=8, n_losers=8)
+        ))
+        logger.info("Movers cache warm-up scheduled")
+    except Exception as e:  # pragma: no cover
+        logger.warning("Yahoo Live WS / movers warm-up not started: %s", e)
 
 
 @app.get("/")
@@ -202,6 +221,144 @@ async def api_scan(n: int = 10) -> dict[str, Any]:
         "themes": detailed.get("themes"),
         "candidates": detailed.get("candidates", []),
     }
+
+
+@app.get("/api/movers/stream")
+async def api_movers_stream(
+    pinned: str = "",
+    n_gainers: int = 8,
+    n_losers: int = 8,
+) -> StreamingResponse:
+    """Server-Sent Events stream of marquee updates.
+
+    Sends a fresh snapshot every ~5s while a Yahoo WebSocket feed is alive,
+    or every ~60s falling back to /api/movers' yfinance computation.
+    """
+    import asyncio
+    import json
+    from webui.yahoo_live import ticker
+
+    pins = [p.strip().upper() for p in pinned.split(",") if p.strip()]
+
+    async def gen():
+        from webui.movers import get_movers, _recent_run_symbols, ANCHORS
+        from webui.yahoo_live import ticker
+
+        first = True
+        while True:
+            # Fast initial snapshot: live WS prices for ANCHORS + pins + recent
+            # (no yfinance round-trip). Yields immediately so the browser sees
+            # something in <1s even on a cold cache.
+            if first:
+                first = False
+                snap = ticker.get_snapshot()
+                anchor_keys = [s.replace("^", "") for s in ANCHORS]
+                quick_feed = []
+                for s in anchor_keys + [p.upper() for p in pins]:
+                    live = snap.get(s) or snap.get(f"^{s}")
+                    if live and live.get("p") is not None and live.get("c") is not None:
+                        quick_feed.append({
+                            "s": s, "p": live["p"], "c": live["c"],
+                            "kind": "anchor" if s in anchor_keys else "pinned",
+                            "live": True,
+                        })
+                if quick_feed:
+                    yield (
+                        "event: snapshot\n"
+                        f"data: {json.dumps({'feed': quick_feed, 'live': ticker.is_live, 'ts': int(time.time())}, default=str)}\n\n"
+                    )
+
+            # Full pass: anchors + pinned + recent + top movers (slow, cached)
+            recent = await _recent_run_symbols(days=30, limit=50)
+            extras_for_universe = list(set(pins) | set(recent))
+            feed = await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: get_movers(
+                    n_gainers=n_gainers,
+                    n_losers=n_losers,
+                    extra=extras_for_universe,
+                    pinned=list(pins) + [s for s in recent if s not in pins],
+                ),
+            )
+
+            symbols_in_feed = [item.get("s", "") for item in feed]
+            await ticker.update_subscriptions([s.upper() for s in symbols_in_feed if s])
+
+            snapshot = ticker.get_snapshot()
+            for item in feed:
+                live = snapshot.get(item["s"]) or snapshot.get(item["s"].upper())
+                if live and live.get("p") is not None and live.get("c") is not None:
+                    item["p"] = live["p"]
+                    item["c"] = live["c"]
+                    item["live"] = True
+
+            payload = {"feed": feed, "live": ticker.is_live, "ts": int(time.time())}
+            yield f"event: snapshot\ndata: {json.dumps(payload, default=str)}\n\n"
+
+            await asyncio.sleep(5 if ticker.is_live else 60)
+
+    return StreamingResponse(
+        gen(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+    import asyncio
+    return await asyncio.get_event_loop().run_in_executor(
+        None, lambda: get_ohlcv(symbol.upper(), period)
+    )
+
+
+@app.get("/api/movers")
+async def api_movers(
+    n_gainers: int = 8,
+    n_losers: int = 8,
+    extra: str = "",
+    pinned: str = "",
+    include_recent_runs: bool = True,
+) -> dict[str, Any]:
+    """Top market movers (gainers + losers) interleaved with anchor indices,
+    user-pinned tickers, and symbols from recent analyses.
+
+    Backed by yfinance and a server-side ~55s cache.
+      • `pinned=AAA,BBB` — comma-separated user pins (kind=pinned in feed)
+      • `include_recent_runs=true` — auto-include symbols from runs in the
+        last 30 days (kind=recent in feed)
+      • `extra=` — additional universe inclusions (no special tagging)
+    """
+    import asyncio
+    extras = [e.strip().upper() for e in extra.split(",") if e.strip()]
+    pins = [p.strip().upper() for p in pinned.split(",") if p.strip()]
+
+    recent: list[str] = []
+    if include_recent_runs:
+        from webui.movers import _recent_run_symbols
+        recent = await _recent_run_symbols(days=30, limit=50)
+
+    # Recent runs go into the universe so movers can pick them up; also tag
+    # explicitly via `pinned` slot when not already covered.
+    extras_for_universe = list(set(extras) | set(recent))
+
+    feed = await asyncio.get_event_loop().run_in_executor(
+        None,
+        lambda: get_movers(
+            n_gainers=n_gainers,
+            n_losers=n_losers,
+            extra=extras_for_universe,
+            pinned=list(pins) + [s for s in recent if s not in pins],
+        ),
+    )
+
+    # Mark the recent-only entries (those that ended up in the pinned slot
+    # but weren't user-pinned) as kind=recent for UI styling.
+    pin_set = set(pins)
+    recent_set = set(recent)
+    for item in feed:
+        if item.get("kind") == "pinned":
+            sym = (item.get("s") or "").upper()
+            if sym not in pin_set and sym in recent_set:
+                item["kind"] = "recent"
+
+    return {"feed": feed, "count": len(feed), "pinned": pins, "recent": recent}
 
 
 @app.get("/api/chart/{symbol}")

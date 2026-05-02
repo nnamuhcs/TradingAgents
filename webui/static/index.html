@@ -17,20 +17,39 @@
     <button @click="page='new'" :class="{active: page==='new'}">New Run</button>
     <button @click="page='history'; loadHistory()" :class="{active: page==='history'}">History</button>
     <button @click="page='scanner'" :class="{active: page==='scanner'}">Scanner</button>
+    <button @click="showSettings = !showSettings" :class="{active: showSettings}">⚙ Watchlist</button>
   </nav>
 </header>
+
+<div class="settings-popover" x-show="showSettings" x-transition>
+  <h3>Pinned Tickers (Watchlist)</h3>
+  <p class="muted">These appear at the top of the marquee in addition to top movers and your recent run symbols. Stored in your browser only.</p>
+  <div class="pin-row">
+    <input type="text" x-model="newPin" @keydown.enter.prevent="addPin()" placeholder="e.g. AVGO, BTC-USD, ^VIX" />
+    <button @click="addPin()">Add</button>
+  </div>
+  <div class="pin-list">
+    <template x-for="p in pinned" :key="p">
+      <span class="pin-chip">
+        <strong x-text="p"></strong>
+        <button @click="removePin(p)" class="chip-x" title="remove">×</button>
+      </span>
+    </template>
+    <span x-show="!pinned.length" class="muted">No custom pins yet — defaults will be used.</span>
+  </div>
+</div>
 
 <div class="market-ticker">
   <div class="ticker-track" :class="{paused: marketTicker.length === 0}">
     <template x-for="t in marketTicker" :key="'a-'+t.s">
-      <span class="ticker-item"><strong x-text="t.s"></strong>
+      <span class="ticker-item" :class="'kind-'+(t.kind||'item')"><strong x-text="t.s"></strong>
         <span :class="t.c >= 0 ? 'up' : 'down'"
               x-text="' ' + (t.p ? t.p.toFixed(2) : '—') + '  ' + (t.c >= 0 ? '▲' : '▼') + ' ' + Math.abs(t.c).toFixed(2) + '%'"></span>
       </span>
     </template>
     <!-- duplicate the same items so the marquee is seamless -->
     <template x-for="t in marketTicker" :key="'b-'+t.s">
-      <span class="ticker-item" aria-hidden="true"><strong x-text="t.s"></strong>
+      <span class="ticker-item" :class="'kind-'+(t.kind||'item')" aria-hidden="true"><strong x-text="t.s"></strong>
         <span :class="t.c >= 0 ? 'up' : 'down'"
               x-text="' ' + (t.p ? t.p.toFixed(2) : '—') + '  ' + (t.c >= 0 ? '▲' : '▼') + ' ' + Math.abs(t.c).toFixed(2) + '%'"></span>
       </span>
@@ -209,7 +228,10 @@
 <script src="/static/app.js"></script>
 
 <footer class="status-bar">
-  <span class="ok">● CONNECTED</span>
+  <span class="ok" :class="{warn: !liveStreamConnected}">
+    <span x-show="liveStreamConnected">● LIVE</span>
+    <span x-show="!liveStreamConnected">○ POLL 60s</span>
+  </span>
   <span>Provider: <strong x-text="form.llm_provider"></strong></span>
   <span>Deep: <strong x-text="form.deep_model"></strong></span>
   <span>Quick: <strong x-text="form.quick_model"></strong></span>
