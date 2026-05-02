@@ -43,6 +43,7 @@ class Run(Base):
     google_thinking_level = Column(String(20), nullable=True)
 
     decisions = Column(JSON, default=dict)               # {symbol: decision_text}
+    reports = Column(JSON, default=dict)                  # {symbol: {section: markdown}}
     error = Column(Text, nullable=True)
 
 
@@ -65,10 +66,15 @@ def get_sessionmaker() -> async_sessionmaker[AsyncSession]:
 
 
 async def init_db() -> None:
-    """Create tables if they don't exist. Safe to call repeatedly."""
+    """Create tables if they don't exist; add new columns if the schema
+    has evolved since the original CREATE."""
     engine = get_engine()
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        # Lightweight ALTERs for added columns. Idempotent.
+        await conn.exec_driver_sql(
+            "ALTER TABLE runs ADD COLUMN IF NOT EXISTS reports JSONB DEFAULT '{}'::jsonb"
+        )
 
 
 async def session_scope() -> AsyncIterator[AsyncSession]:

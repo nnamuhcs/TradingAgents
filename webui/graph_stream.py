@@ -91,6 +91,11 @@ class GraphStreamer:
             if short not in selected_lower:
                 self._statuses[full] = "skipped"
 
+    @property
+    def reports(self) -> dict[str, str]:
+        """Snapshot of all accumulated section content for the current symbol."""
+        return dict(self._reports)
+
     # ────────────────────────── public API ──────────────────────────
 
     def emit_initial(self, ticker: str, analysis_date: str) -> None:

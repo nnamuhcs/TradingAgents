@@ -39,6 +39,9 @@ function app() {
     // History
     history: [],
 
+    // Final Report modal
+    reportModal: { open: false, symbol: '', runId: null, markdown: '', html: '' },
+
     // Scanner
     scanResult: {},
     scanN: 10,
@@ -246,6 +249,87 @@ function app() {
       if (!confirm('Cancel this run?')) return;
       await fetch(`/api/runs/${id}/cancel`, { method: 'POST' });
       await this.loadHistory();
+    },
+
+    // ─────────────────── full report ───────────────────
+    async openReport(symbol, runId = null) {
+      // For the live page we don't yet know the run_id explicitly; pull
+      // the most recent matching run from history if not supplied.
+      if (!runId) {
+        const res = await fetch('/api/runs?limit=20');
+        const runs = await res.json();
+        const found = runs.find(r => (r.symbols || []).includes(symbol));
+        if (!found) {
+          alert('No run found for ' + symbol);
+          return;
+        }
+        runId = found.id;
+      }
+
+      const res = await fetch(`/api/runs/${runId}/report?symbol=${encodeURIComponent(symbol)}`);
+      if (!res.ok) {
+        alert(`Failed to load report (HTTP ${res.status})`);
+        return;
+      }
+      const data = await res.json();
+      const r = (data.reports || [])[0];
+      if (!r) {
+        alert('No report data for ' + symbol);
+        return;
+      }
+      this.reportModal = {
+        open: true,
+        symbol,
+        runId,
+        markdown: r.markdown || '',
+        html: marked.parse(r.markdown || ''),
+      };
+    },
+
+    async downloadReport(symbol, runId = null) {
+      if (!runId) {
+        const res = await fetch('/api/runs?limit=20');
+        const runs = await res.json();
+        const found = runs.find(r => (r.symbols || []).includes(symbol));
+        if (!found) { alert('No run found for ' + symbol); return; }
+        runId = found.id;
+      }
+      const url = `/api/runs/${runId}/report.md?symbol=${encodeURIComponent(symbol)}`;
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = '';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    },
+
+    async copyReport() {
+      try {
+        await navigator.clipboard.writeText(this.reportModal.markdown || '');
+        alert('Markdown copied to clipboard');
+      } catch (e) {
+        alert('Copy failed: ' + e.message);
+      }
+    },
+
+    printReport() {
+      const w = window.open('', '_blank');
+      if (!w) return;
+      w.document.write(`
+        <html><head><title>${this.reportModal.symbol} — TradingAgents Report</title>
+        <style>
+          body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+                 max-width: 900px; margin: 24px auto; padding: 0 24px; color: #111; }
+          h1, h2 { border-bottom: 1px solid #ccc; padding-bottom: 6px; }
+          h1 { font-size: 24px; } h2 { font-size: 18px; margin-top: 24px; }
+          h3, h4 { margin-top: 16px; }
+          code { background: #f4f4f4; padding: 1px 5px; border-radius: 3px; }
+          pre  { background: #f4f4f4; padding: 10px; border-radius: 4px; overflow: auto; }
+          blockquote { border-left: 3px solid #999; padding-left: 12px; color: #555; }
+          table { border-collapse: collapse; } th, td { border: 1px solid #999; padding: 4px 8px; }
+        </style></head><body>${this.reportModal.html}</body></html>`);
+      w.document.close();
+      setTimeout(() => w.print(), 300);
     },
 
     // ─────────────────── chart ───────────────────

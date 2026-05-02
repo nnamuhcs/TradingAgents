@@ -224,6 +224,103 @@ async def get_run(run_id: str) -> dict[str, Any]:
     return _run_to_dict(run)
 
 
+def _build_full_report(run: Run, symbol: str) -> str:
+    """Combine the persisted report sections into one nicely formatted Markdown
+    document. Used by the JSON and download endpoints."""
+    reports = (run.reports or {}).get(symbol, {}) if run.reports else {}
+    decision = (run.decisions or {}).get(symbol, "")
+
+    section_titles = [
+        ("market_report",          "I.   Market / Technical Analysis"),
+        ("sentiment_report",       "II.  Social Sentiment Analysis"),
+        ("news_report",            "III. News Analysis"),
+        ("fundamentals_report",    "IV.  Fundamentals Analysis"),
+        ("investment_plan",        "V.   Research Team Debate (Bull / Bear / Manager)"),
+        ("trader_investment_plan", "VI.  Trader's Investment Plan"),
+        ("final_trade_decision",   "VII. Risk Management & Portfolio Manager Decision"),
+    ]
+
+    parts: list[str] = []
+    parts.append(f"# TradingAgents — Full Report")
+    parts.append("")
+    parts.append(f"**Symbol:** `{symbol}`  |  **Analysis date:** `{run.analysis_date}`")
+    parts.append("")
+    parts.append(f"- Run ID: `{run.id}`")
+    parts.append(f"- Generated: `{(run.finished_at or run.created_at).isoformat() if run.created_at else 'n/a'}` UTC")
+    parts.append(f"- Provider: `{run.llm_provider}`  |  Deep model: `{run.deep_model}`  |  Quick model: `{run.quick_model}`")
+    parts.append(f"- Analysts: `{', '.join(run.analysts or [])}`")
+    parts.append(f"- Research depth: `{run.research_depth}`  |  Risk rounds: `{run.risk_rounds}`")
+    parts.append("")
+    if decision:
+        parts.append("## Final Decision")
+        parts.append("")
+        parts.append(decision if decision.lstrip().startswith("#") else f"> {decision}")
+        parts.append("")
+    parts.append("---")
+    parts.append("")
+    for key, title in section_titles:
+        content = reports.get(key)
+        if not content:
+            continue
+        parts.append(f"## {title}")
+        parts.append("")
+        parts.append(content.strip())
+        parts.append("")
+        parts.append("---")
+        parts.append("")
+    if not reports:
+        parts.append("_(No section content was persisted for this run.)_")
+    return "\n".join(parts)
+
+
+@app.get("/api/runs/{run_id}/report")
+async def get_run_report(run_id: str, symbol: str | None = None) -> dict[str, Any]:
+    """Return the assembled full report as JSON.
+
+    If `symbol` omitted, returns reports for every symbol in the run.
+    """
+    sm = get_sessionmaker()
+    async with sm() as session:
+        run = (await session.execute(select(Run).where(Run.id == run_id))).scalar_one_or_none()
+    if run is None:
+        raise HTTPException(404, "run not found")
+    syms = [symbol] if symbol else (run.symbols or [])
+    if not syms:
+        return {"run_id": run_id, "reports": []}
+    reports = []
+    for s in syms:
+        if not s:
+            continue
+        reports.append({
+            "symbol": s,
+            "markdown": _build_full_report(run, s),
+            "decision": (run.decisions or {}).get(s, ""),
+            "sections": list(((run.reports or {}).get(s, {}) or {}).keys()),
+        })
+    return {"run_id": run_id, "reports": reports}
+
+
+@app.get("/api/runs/{run_id}/report.md")
+async def download_run_report(run_id: str, symbol: str) -> StreamingResponse:
+    """Download a single symbol's full report as a .md file."""
+    sm = get_sessionmaker()
+    async with sm() as session:
+        run = (await session.execute(select(Run).where(Run.id == run_id))).scalar_one_or_none()
+    if run is None:
+        raise HTTPException(404, "run not found")
+    md = _build_full_report(run, symbol.upper())
+
+    async def gen():
+        yield md.encode("utf-8")
+
+    fname = f"{symbol.upper()}_{run.analysis_date}_{run_id[:8]}.md"
+    return StreamingResponse(
+        gen(),
+        media_type="text/markdown; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+    )
+
+
 @app.get("/api/runs/{run_id}/events")
 async def run_events(run_id: str) -> StreamingResponse:
     if not bus.has(run_id):
@@ -257,6 +354,7 @@ def _run_to_dict(r: Run) -> dict[str, Any]:
         "deep_model": r.deep_model,
         "quick_model": r.quick_model,
         "decisions": r.decisions,
+        "reports": r.reports,
         "error": r.error,
     }
 

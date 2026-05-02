@@ -43,7 +43,10 @@
 </div>
 
 <div class="settings-popover" x-show="showSettings" x-transition>
-  <h3>Pinned Tickers</h3>
+  <div class="popover-head">
+    <h3>Pinned Tickers</h3>
+    <button class="chip-x" @click="showSettings = false" title="close">×</button>
+  </div>
   <p class="muted">Pinned symbols always show in the marquee. Stored in your browser only.</p>
   <div class="pin-row">
     <input type="text" x-model="newPin" @keydown.enter.prevent="addPin()" placeholder="e.g. AVGO, BTC-USD, ^VIX" />
@@ -223,12 +226,16 @@
       <!-- Decisions appear after each symbol completes -->
       <template x-if="Object.keys(decisions).length">
         <div class="decisions" style="margin-top: 14px;">
-          <h3>Decisions</h3>
+          <h3>Decisions & Reports</h3>
           <template x-for="[symbol, decision] in Object.entries(decisions)" :key="symbol">
             <div class="decision">
               <div class="decision-head">
                 <h4 x-text="symbol"></h4>
-                <button @click="loadChart(symbol)">📊 Chart</button>
+                <div style="display: flex; gap: 6px;">
+                  <button @click="openReport(symbol)">📄 Full Report</button>
+                  <button @click="downloadReport(symbol)">⬇ .md</button>
+                  <button @click="loadChart(symbol)">📊 Chart</button>
+                </div>
               </div>
               <pre x-text="decision"></pre>
             </div>
@@ -240,6 +247,24 @@
     </div>
   </div>
 </section>
+
+<!-- Modal: full report viewer -->
+<div class="modal-backdrop" x-show="reportModal.open" x-transition @click.self="reportModal.open = false">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>
+        Full Report — <span x-text="reportModal.symbol" class="mono" style="color: var(--accent)"></span>
+      </h3>
+      <div style="display: flex; gap: 6px;">
+        <button @click="downloadReport(reportModal.symbol, reportModal.runId)">⬇ Download .md</button>
+        <button @click="copyReport()">📋 Copy</button>
+        <button @click="printReport()">🖨 Print</button>
+        <button @click="reportModal.open = false" class="danger">✕ Close</button>
+      </div>
+    </div>
+    <div class="modal-body report-pane" x-html="reportModal.html"></div>
+  </div>
+</div>
 
 <!-- ─────────── HISTORY ─────────── -->
 <section x-show="page==='history'">
@@ -263,8 +288,13 @@
               </template>
               <span x-show="!Object.keys(r.decisions||{}).length" style="color: var(--fg-muted);">—</span>
             </td>
-            <td style="display: flex; gap: 4px;">
+            <td style="display: flex; gap: 4px; flex-wrap: wrap;">
               <button @click="viewRun(r.id)">View</button>
+              <template x-for="sym in (r.symbols||[])" :key="sym">
+                <button @click="openReport(sym, r.id)" style="font-size: 10.5px; padding: 4px 8px;">
+                  📄 <span x-text="sym"></span>
+                </button>
+              </template>
               <button x-show="r.status==='running' || r.status==='pending'"
                       class="danger" @click="cancelRun(r.id)">Cancel</button>
             </td>

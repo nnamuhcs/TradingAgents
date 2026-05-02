@@ -76,11 +76,12 @@ def _scanner_resolve(run_id: str, snap: dict[str, Any]) -> tuple[list[str], dict
                      "themes": detailed.get("themes")}
 
 
-def _propagate(run_id: str, symbol: str, snap: dict[str, Any]) -> str:
+def _propagate(run_id: str, symbol: str, snap: dict[str, Any]) -> tuple[str, dict[str, str]]:
     """Pure sync function — invoked inside a thread executor. No DB access.
 
     Streams the LangGraph chunks and emits TUI-identical agent_status /
-    message / tool_call / report_section events via the EventBus.
+    message / tool_call / report_section events via the EventBus. Returns
+    (decision_text, reports_dict) so the caller can persist them to Postgres.
     """
     from webui.graph_stream import GraphStreamer
 
@@ -111,7 +112,7 @@ def _propagate(run_id: str, symbol: str, snap: dict[str, Any]) -> str:
 
     streamer.emit_done()
     decision = ta.process_signal(final_state.get("final_trade_decision", "")) if final_state else ""
-    return str(decision)
+    return str(decision), streamer.reports
 
 
 def _snapshot(run: Run) -> dict[str, Any]:
@@ -172,25 +173,30 @@ async def _run_async(run_id: str) -> None:
 
         # 2. For each symbol, run the trading graph in the executor
         decisions: dict[str, str] = {}
+        reports: dict[str, dict[str, str]] = {}
         for symbol in symbols:
             bus.publish(run_id, "symbol_start", {"symbol": symbol})
             try:
-                decision = await loop.run_in_executor(
+                decision, sym_reports = await loop.run_in_executor(
                     None, functools.partial(_propagate, run_id, symbol, snap)
                 )
                 decisions[symbol] = decision
-                bus.publish(run_id, "symbol_done", {"symbol": symbol, "decision": decision})
-                # Persist incremental progress
-                await _set_status(run_id, decisions=dict(decisions))
+                reports[symbol] = sym_reports
+                bus.publish(run_id, "symbol_done",
+                            {"symbol": symbol, "decision": decision,
+                             "reports_saved": list(sym_reports.keys())})
+                # Persist incremental progress (decisions + reports)
+                await _set_status(run_id, decisions=dict(decisions), reports=dict(reports))
             except Exception as e:  # pragma: no cover
                 bus.publish(run_id, "symbol_error", {"symbol": symbol, "error": str(e)})
                 decisions[symbol] = f"ERROR: {e}"
-                await _set_status(run_id, decisions=dict(decisions))
+                await _set_status(run_id, decisions=dict(decisions), reports=dict(reports))
 
         # 3. Mark complete
         await _set_status(
             run_id,
             decisions=decisions,
+            reports=reports,
             status="completed",
             finished_at=datetime.utcnow(),
         )
