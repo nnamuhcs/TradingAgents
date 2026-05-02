@@ -57,7 +57,15 @@ def _scanner_resolve(run_id: str, snap: dict[str, Any]) -> tuple[list[str], dict
 
     n = int(snap["ticker_source"].split("-")[1])
     bus.publish(run_id, "log", {"line": f"Running Market Scanner (top {n})..."})
-    scanner = MarketScanner(provider=snap["llm_provider"], model=snap["deep_model"])
+
+    def _on_progress(event: dict[str, Any]) -> None:
+        bus.publish(run_id, "scanner_layer", event)
+
+    scanner = MarketScanner(
+        provider=snap["llm_provider"],
+        model=snap["deep_model"],
+        progress_callback=_on_progress,
+    )
     result = scanner.scan()
     detailed = result.get("detailed", {})
     picks = (detailed.get("picks") or [])[:n]

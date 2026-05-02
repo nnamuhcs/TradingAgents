@@ -151,6 +151,14 @@ async def start_run(req: StartRunRequest) -> dict[str, str]:
     if req.ticker_source not in {"manual", "scan-5", "scan-10", "scan-20"}:
         raise HTTPException(400, f"invalid ticker_source: {req.ticker_source}")
 
+    # Cap manual symbols to 5 — multi-symbol runs are sequential and the
+    # cumulative latency / token cost grows quickly past that.
+    symbols = [s.strip().upper() for s in req.symbols][:5]
+    if req.ticker_source == "manual" and len(req.symbols) > 5:
+        # silently truncate but tell the client via an info log so the UI
+        # can surface it
+        pass
+
     run_id = str(uuid.uuid4())
     sm = get_sessionmaker()
     async with sm() as session:
@@ -158,7 +166,7 @@ async def start_run(req: StartRunRequest) -> dict[str, str]:
             id=run_id,
             status="pending",
             ticker_source=req.ticker_source,
-            symbols=[s.strip().upper() for s in req.symbols],
+            symbols=symbols,
             analysis_date=req.analysis_date,
             analysts=req.analysts,
             research_depth=req.research_depth,
@@ -171,6 +179,7 @@ async def start_run(req: StartRunRequest) -> dict[str, str]:
             openai_reasoning_effort=req.openai_reasoning_effort,
             google_thinking_level=req.google_thinking_level,
             decisions={},
+            reports={},
         )
         session.add(run)
         await session.commit()

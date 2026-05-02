@@ -9,22 +9,28 @@ function app() {
     running: false,
     error: '',
     status: 'idle',
-    currentSymbol: '',
 
-    // Live dashboard state
+    // Per-symbol state — keyed by symbol
+    // perSymbol[sym] = { agentStates, messages, reports, decision, done }
+    perSymbol: {},
+    symbolList: [],            // ordered list of symbols for the tab bar
+    currentSymbol: '',         // active tab
+    activeStreamSymbol: '',    // symbol the runner is currently processing
+    symbolDone: {},            // {sym: true} when symbol_done arrived
+    decisions: {},
+
+    // Scanner funnel (live during scan-N runs)
+    funnel: [],                // [{layer, name, status, input, output, info}]
+
+    // Live dashboard tabs
+    activeTab: 'market_report',
+    activeTab: 'market_report',
     agentGroups: [
       { name: 'I. Analysts',     agents: ANALYSTS_GROUP },
       { name: 'II. Research',    agents: RESEARCH_GROUP },
       { name: 'III. Trader',     agents: TRADING_GROUP },
       { name: 'IV. Risk Mgmt',   agents: RISK_GROUP },
     ],
-    agentStates: {},
-
-    messages: [],
-    decisions: {},
-
-    reports: {},
-    activeTab: 'market_report',
     reportTabs: [
       { key: 'market_report',           label: 'Market' },
       { key: 'sentiment_report',        label: 'Social' },
@@ -76,15 +82,15 @@ function app() {
     },
 
     get visibleMessages() {
-      // Render last 80 messages with shortened body
-      return this.messages.slice(-80).map(m => ({
+      const msgs = (this.perSymbol[this.currentSymbol]?.messages) || [];
+      return msgs.slice(-80).map(m => ({
         type: m.type,
         short: (m.content || '').length > 600 ? (m.content || '').slice(0, 600) + '…' : (m.content || ''),
       }));
     },
 
     get renderedReport() {
-      const md = this.reports[this.activeTab];
+      const md = this.perSymbol[this.currentSymbol]?.reports?.[this.activeTab];
       if (!md) {
         return `<div style="color:var(--fg-muted)">No content yet for this section.</div>`;
       }
@@ -93,6 +99,16 @@ function app() {
       } catch {
         return `<pre>${this.escape(md)}</pre>`;
       }
+    },
+
+    get symbolCount() {
+      return (this.form.symbols_str || '').split(',').map(s => s.trim()).filter(Boolean).length;
+    },
+
+    barWidth(layer) {
+      // Funnel bar width: 100% for the input universe (max), shrinking to fit
+      const maxIn = Math.max(...this.funnel.map(l => l.input || 0), 1);
+      return Math.max(6, ((layer.input || 0) / maxIn) * 100);
     },
 
     escape(s) { return (s || '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); },
@@ -112,18 +128,21 @@ function app() {
     // ─────────────────── runs ───────────────────
     async startRun() {
       this.error = '';
-      this.messages = [];
-      this.reports = {};
-      this.agentStates = {};
-      this.decisions = {};
+      this.perSymbol = {};
+      this.symbolList = [];
       this.currentSymbol = '';
+      this.activeStreamSymbol = '';
+      this.symbolDone = {};
+      this.decisions = {};
+      this.funnel = [];
       this.activeTab = 'market_report';
       this.chartActive = false;
       this.running = true;
       this.status = 'pending';
 
+      // Cap to 5 symbols client-side (server also enforces)
       const symbols = this.form.ticker_source === 'manual'
-        ? this.form.symbols_str.split(',').map(s => s.trim()).filter(Boolean)
+        ? this.form.symbols_str.split(',').map(s => s.trim()).filter(Boolean).slice(0, 5)
         : [];
 
       const body = {
@@ -151,6 +170,9 @@ function app() {
           throw new Error(`HTTP ${res.status}: ${txt}`);
         }
         const { run_id } = await res.json();
+        // Pre-create per-symbol state for manual symbols
+        for (const s of symbols) this.ensureSymbol(s);
+        if (symbols.length) this.currentSymbol = symbols[0];
         this.subscribe(run_id);
       } catch (e) {
         this.error = e.message;
@@ -159,72 +181,130 @@ function app() {
       }
     },
 
+    ensureSymbol(symbol) {
+      if (!symbol) return;
+      if (!this.perSymbol[symbol]) {
+        this.perSymbol = { ...this.perSymbol, [symbol]: {
+          agentStates: {},
+          messages: [],
+          reports: {},
+        }};
+        if (!this.symbolList.includes(symbol)) {
+          this.symbolList = [...this.symbolList, symbol];
+        }
+        if (!this.currentSymbol) this.currentSymbol = symbol;
+      }
+    },
+
+    pushMessage(symbol, type, content) {
+      this.ensureSymbol(symbol);
+      const sym = symbol || this.currentSymbol || '_global';
+      const list = (this.perSymbol[sym]?.messages || []).concat({ type, content });
+      this.perSymbol = { ...this.perSymbol, [sym]: {
+        ...this.perSymbol[sym],
+        messages: list,
+      }};
+      this.$nextTick(() => {
+        const el = this.$refs.messagesEl;
+        if (el && sym === this.currentSymbol) el.scrollTop = el.scrollHeight;
+      });
+    },
+
     subscribe(runId) {
       this.status = 'running';
       const es = new EventSource(`/api/runs/${runId}/events`);
 
+      const symOf = (data) => data.symbol || this.activeStreamSymbol || this.currentSymbol;
+
       es.addEventListener('log', (e) => {
-        const { line } = JSON.parse(e.data);
-        this.pushMessage('System', line);
+        const d = JSON.parse(e.data);
+        this.pushMessage(symOf(d) || '_global', 'System', d.line);
       });
 
       es.addEventListener('agent_states', (e) => {
-        const { states } = JSON.parse(e.data);
-        this.agentStates = { ...states };
+        const d = JSON.parse(e.data);
+        const sym = symOf(d);
+        this.ensureSymbol(sym);
+        this.perSymbol = { ...this.perSymbol, [sym]: {
+          ...this.perSymbol[sym], agentStates: { ...d.states },
+        }};
       });
       es.addEventListener('agent_status', (e) => {
-        const { agent, status } = JSON.parse(e.data);
-        this.agentStates = { ...this.agentStates, [agent]: status };
+        const d = JSON.parse(e.data);
+        const sym = symOf(d);
+        this.ensureSymbol(sym);
+        const cur = this.perSymbol[sym]?.agentStates || {};
+        this.perSymbol = { ...this.perSymbol, [sym]: {
+          ...this.perSymbol[sym], agentStates: { ...cur, [d.agent]: d.status },
+        }};
       });
       es.addEventListener('message', (e) => {
-        const { type, content, symbol } = JSON.parse(e.data);
-        if (symbol) this.currentSymbol = symbol;
-        this.pushMessage(type, content);
+        const d = JSON.parse(e.data);
+        this.pushMessage(symOf(d), d.type, d.content);
       });
       es.addEventListener('tool_call', (e) => {
-        const { tool, args } = JSON.parse(e.data);
-        const argsStr = (() => { try { return JSON.stringify(args); } catch { return String(args); } })();
-        this.pushMessage('Tool', `${tool}(${argsStr.slice(0, 240)}${argsStr.length > 240 ? '…' : ''})`);
+        const d = JSON.parse(e.data);
+        const argsStr = (() => { try { return JSON.stringify(d.args); } catch { return String(d.args); } })();
+        this.pushMessage(symOf(d), 'Tool', `${d.tool}(${argsStr.slice(0, 240)}${argsStr.length > 240 ? '…' : ''})`);
       });
       es.addEventListener('report_section', (e) => {
-        const { section, content } = JSON.parse(e.data);
-        this.reports = { ...this.reports, [section]: content };
-        this.activeTab = section;
+        const d = JSON.parse(e.data);
+        const sym = symOf(d);
+        this.ensureSymbol(sym);
+        const cur = this.perSymbol[sym]?.reports || {};
+        this.perSymbol = { ...this.perSymbol, [sym]: {
+          ...this.perSymbol[sym], reports: { ...cur, [d.section]: d.content },
+        }};
+        if (sym === this.currentSymbol) this.activeTab = d.section;
+      });
+
+      // Scanner funnel
+      es.addEventListener('scanner_layer', (e) => {
+        const d = JSON.parse(e.data);
+        const idx = this.funnel.findIndex(l => l.layer === d.layer);
+        if (idx >= 0) {
+          const updated = { ...this.funnel[idx], ...d };
+          this.funnel = [...this.funnel.slice(0, idx), updated, ...this.funnel.slice(idx + 1)];
+        } else {
+          this.funnel = [...this.funnel, d];
+        }
       });
       es.addEventListener('scanner_picks', (e) => {
-        const { picks, market_regime, themes } = JSON.parse(e.data);
-        this.pushMessage('System', `Scanner picks: ${picks.map(p => p.symbol).join(', ')}`);
-        if (market_regime) this.pushMessage('System', `Market regime: ${market_regime}`);
-        if (themes && themes.length) this.pushMessage('System', `Themes: ${themes.join(', ')}`);
+        const d = JSON.parse(e.data);
+        for (const p of (d.picks || [])) this.ensureSymbol(p.symbol);
+        if (this.symbolList.length && !this.currentSymbol) this.currentSymbol = this.symbolList[0];
+        this.pushMessage('_global', 'System', `Scanner picks: ${(d.picks||[]).map(p=>p.symbol).join(', ')}`);
+        if (d.market_regime) this.pushMessage('_global', 'System', `Market regime: ${d.market_regime}`);
+        if (d.themes && d.themes.length) this.pushMessage('_global', 'System', `Themes: ${d.themes.join(', ')}`);
       });
 
       es.addEventListener('symbol_start', (e) => {
         const { symbol } = JSON.parse(e.data);
-        this.currentSymbol = symbol;
-        this.pushMessage('System', `── ${symbol} starting ──`);
-        // reset per-symbol state but keep cumulative messages
-        this.agentStates = {};
-        this.reports = {};
+        this.ensureSymbol(symbol);
+        this.activeStreamSymbol = symbol;
+        this.currentSymbol = symbol;          // auto-flip tab to active symbol
         this.activeTab = 'market_report';
+        this.pushMessage(symbol, 'System', `── ${symbol} starting ──`);
       });
       es.addEventListener('symbol_done', (e) => {
         const { symbol, decision } = JSON.parse(e.data);
         this.decisions = { ...this.decisions, [symbol]: decision };
-        this.pushMessage('System', `── ${symbol} done ──`);
+        this.symbolDone = { ...this.symbolDone, [symbol]: true };
+        this.pushMessage(symbol, 'System', `── ${symbol} done ──`);
       });
       es.addEventListener('symbol_error', (e) => {
         const { symbol, error } = JSON.parse(e.data);
-        this.pushMessage('System', `!! ${symbol} ERROR: ${error}`);
+        this.pushMessage(symbol, 'System', `!! ${symbol} ERROR: ${error}`);
       });
       es.addEventListener('final_decision', (e) => {
-        this.pushMessage('System', '── all decisions in ──');
+        this.pushMessage('_global', 'System', '── all decisions in ──');
         this.status = 'completed';
         this.running = false;
       });
       es.addEventListener('error', (e) => {
         try {
           const { message } = JSON.parse(e.data);
-          this.pushMessage('System', `ERROR: ${message}`);
+          this.pushMessage(this.currentSymbol || '_global', 'System', `ERROR: ${message}`);
           this.error = message;
         } catch (_) {}
         this.status = 'failed';
@@ -235,14 +315,6 @@ function app() {
         this.running = false;
       });
       es.onerror = () => { /* auto-reconnect handles transient */ };
-    },
-
-    pushMessage(type, content) {
-      this.messages = [...this.messages, { type, content }];
-      this.$nextTick(() => {
-        const el = this.$refs.messagesEl;
-        if (el) el.scrollTop = el.scrollHeight;
-      });
     },
 
     async cancelRun(id) {
@@ -388,13 +460,30 @@ function app() {
       this.running = false;
       this.status = r.status;
       this.decisions = r.decisions || {};
-      this.messages = [
-        { type: 'System', content: `Loaded run ${id}` },
-        { type: 'System', content: `Symbols: ${(r.symbols||[]).join(', ')}` },
-        { type: 'System', content: `Date: ${r.analysis_date}` },
-        { type: 'System', content: `Status: ${r.status}` },
-      ];
-      if (r.error) this.messages.push({ type: 'System', content: `Error: ${r.error}` });
+      this.symbolList = (r.symbols || []).slice();
+      this.perSymbol = {};
+      for (const s of this.symbolList) {
+        this.perSymbol[s] = {
+          agentStates: {},
+          messages: [
+            { type: 'System', content: `Loaded run ${id}` },
+            { type: 'System', content: `Symbol: ${s}` },
+            { type: 'System', content: `Date: ${r.analysis_date}` },
+            { type: 'System', content: `Status: ${r.status}` },
+          ],
+          reports: ((r.reports || {})[s]) || {},
+        };
+        this.symbolDone[s] = r.status === 'completed';
+      }
+      if (r.error) {
+        for (const s of this.symbolList) {
+          this.perSymbol[s].messages.push({ type: 'System', content: `Error: ${r.error}` });
+        }
+      }
+      if (this.symbolList.length) this.currentSymbol = this.symbolList[0];
+      this.activeStreamSymbol = '';
+      this.funnel = [];
+      this.activeTab = 'market_report';
     },
 
     // ─────────────────── scanner ───────────────────

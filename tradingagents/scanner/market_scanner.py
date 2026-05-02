@@ -15,7 +15,7 @@ import re
 import time
 import urllib.request
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Any, Callable, Optional
 
 import numpy as np
 import pandas as pd
@@ -428,11 +428,20 @@ class MarketScanner:
         provider: Optional[str] = None,
         model: Optional[str] = None,
         base_url: Optional[str] = None,
+        progress_callback: Optional[Callable[[dict], None]] = None,
     ):
         self.provider = provider or os.getenv("LLM_PROVIDER", "github-copilot")
         self.model = model or os.getenv("SCANNER_LLM", "claude-opus-4.7")
         client = create_llm_client(self.provider, self.model, base_url)
         self.llm = client.get_llm()
+        self.progress_callback = progress_callback
+
+    def _emit(self, **kwargs: Any) -> None:
+        if self.progress_callback:
+            try:
+                self.progress_callback(dict(kwargs))
+            except Exception as e:
+                logger.debug("progress_callback raised: %s", e)
 
     def scan(self) -> dict:
         """Run full scan, return {symbols, reasoning, ...} (backward-compatible)."""
@@ -453,28 +462,47 @@ class MarketScanner:
         logger.info("MARKET SCANNER — Multi-Signal Analysis")
         logger.info("=" * 60)
 
-        # Fetch SPY benchmark
-        logger.info("Fetching SPY benchmark data (3 months)...")
+        self._emit(layer=0, name="Init", status="started", info="Fetching SPY benchmark (3 months)")
         spy_hist = yf.Ticker("SPY").history(period="3mo")
 
         # Layer 1: Quantitative Screening
         sp500 = _get_sp500_tickers()
         logger.info(f"Layer 1: Screening {len(sp500)} S&P 500 stocks on quant factors...")
+        self._emit(layer=1, name="Quant Screening", status="running",
+                   input=len(sp500), output=None,
+                   info=f"Scoring {len(sp500)} S&P 500 names on RS, vol breakouts, RSI/MACD")
         scored = _screen_quant(sp500, spy_hist)
         top30 = scored[:30]
-        logger.info(f"  → Top 30 selected (score range: {top30[0]['score']:.1f} – {top30[-1]['score']:.1f})")
+        score_high = top30[0]["score"] if top30 else 0
+        score_low = top30[-1]["score"] if top30 else 0
+        logger.info(f"  → Top 30 selected (score range: {score_high:.1f} – {score_low:.1f})")
+        self._emit(layer=1, name="Quant Screening", status="done",
+                   input=len(sp500), output=len(top30),
+                   info=f"Top 30 score range {score_high:.1f}–{score_low:.1f}")
 
         # Layer 2: Event-Driven Prioritization
         logger.info(f"Layer 2: Checking event catalysts for top {len(top30)} stocks...")
+        self._emit(layer=2, name="Event Catalysts", status="running",
+                   input=len(top30), output=None,
+                   info="Earnings, upgrades, news catalysts")
         top30 = _enrich_events(top30)
         events_found = sum(1 for s in top30 if s.get("events"))
         logger.info(f"  → {events_found}/{len(top30)} stocks have event catalysts")
+        self._emit(layer=2, name="Event Catalysts", status="done",
+                   input=len(top30), output=events_found,
+                   info=f"{events_found} of {len(top30)} have catalysts")
 
         # Layer 3: Smart Money Signals
         logger.info(f"Layer 3: Checking smart money signals for top {len(top30)} stocks...")
+        self._emit(layer=3, name="Smart Money", status="running",
+                   input=len(top30), output=None,
+                   info="Insider buys, institutional accumulation")
         top30 = _enrich_smart_money(top30)
         smart_found = sum(1 for s in top30 if s.get("smart_money_signals"))
         logger.info(f"  → {smart_found}/{len(top30)} stocks have smart money signals")
+        self._emit(layer=3, name="Smart Money", status="done",
+                   input=len(top30), output=smart_found,
+                   info=f"{smart_found} of {len(top30)} flagged")
 
         # Market context
         logger.info("Fetching market context (indices + sectors)...")
@@ -482,11 +510,17 @@ class MarketScanner:
 
         # Layer 4: LLM Synthesis
         logger.info("Layer 4: Running LLM synthesis to select final picks...")
+        self._emit(layer=4, name="LLM Synthesis", status="running",
+                   input=len(top30), output=None,
+                   info=f"{self.model} reviewing all {len(top30)} candidates")
         synthesis = _llm_synthesize(self.llm, top30, market_ctx)
         picks = synthesis.get("picks", [])
         logger.info(f"  → LLM selected {len(picks)} stocks")
         for p in picks:
             logger.info(f"    {p['symbol']} [{p['conviction']}]: {p['reasoning'][:80]}")
+        self._emit(layer=4, name="LLM Synthesis", status="done",
+                   input=len(top30), output=len(picks),
+                   info=f"Selected {len(picks)} with conviction reasoning")
 
         return {
             "picks": picks,

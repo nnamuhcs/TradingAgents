@@ -75,15 +75,17 @@
       <label>Ticker source</label>
       <select x-model="form.ticker_source">
         <option value="manual">I'll enter ticker(s) myself</option>
+        <option value="scan-3">Scanner: top 3 picks</option>
         <option value="scan-5">Scanner: top 5 picks</option>
-        <option value="scan-10">Scanner: top 10 picks</option>
-        <option value="scan-20">Scanner: top 20 picks</option>
       </select>
 
       <template x-if="form.ticker_source==='manual'">
         <div>
-          <label>Symbols (comma-separated for multiple)</label>
+          <label>Symbols (comma-separated, up to 5)</label>
           <input type="text" x-model="form.symbols_str" placeholder="NVDA, AAPL, MSFT" />
+          <div class="hint" x-show="symbolCount > 5" style="color: var(--yellow); font-size: 11px; margin-top: 4px;">
+            ⚠ Only the first 5 symbols will be analyzed (currently <span x-text="symbolCount"></span>).
+          </div>
         </div>
       </template>
 
@@ -168,20 +170,52 @@
       <h2>
         Live Output
         <span class="badge" :class="`status-${status}`" x-text="status"></span>
-        <span x-show="currentSymbol" class="badge" style="border-color: var(--accent2); color: var(--accent2);" x-text="currentSymbol"></span>
       </h2>
+
+      <!-- Per-symbol tab bar (only when ≥1 symbols active) -->
+      <div class="symbol-tabs" x-show="symbolList.length">
+        <template x-for="sym in symbolList" :key="sym">
+          <button :class="{active: currentSymbol === sym}"
+                  @click="currentSymbol = sym">
+            <span class="dot"
+                  :class="(symbolDone[sym] ? 'completed' : (sym === activeStreamSymbol ? 'in_progress' : 'pending'))"></span>
+            <span x-text="sym"></span>
+            <span x-show="symbolDone[sym]" class="check">✓</span>
+          </button>
+        </template>
+      </div>
+
+      <!-- Scanner funnel (visible during scanner phase) -->
+      <div class="funnel" x-show="funnel.length" x-transition>
+        <div class="funnel-title">Market Scanner Funnel</div>
+        <template x-for="(layer, i) in funnel" :key="layer.layer">
+          <div class="funnel-row" :class="layer.status">
+            <div class="funnel-num" x-text="'L'+layer.layer"></div>
+            <div class="funnel-name" x-text="layer.name"></div>
+            <div class="funnel-bar">
+              <div class="bar-bg" :style="`width: ${barWidth(layer)}%`"></div>
+              <span class="bar-text">
+                <span x-text="layer.input != null ? layer.input : '—'"></span>
+                <span style="color: var(--fg-muted); margin: 0 6px;">→</span>
+                <span x-text="layer.output != null ? layer.output : '…'"></span>
+              </span>
+            </div>
+            <div class="funnel-info" x-text="layer.info || ''"></div>
+          </div>
+        </template>
+      </div>
 
       <div class="live-grid">
 
         <!-- Agents column -->
         <div class="panel dense">
-          <div class="panel-title">Agents</div>
+          <div class="panel-title">Agents <span x-show="currentSymbol" style="color: var(--accent2)">— <span x-text="currentSymbol"></span></span></div>
           <div class="agents">
             <template x-for="group in agentGroups" :key="group.name">
               <div class="agent-section">
                 <div class="lbl" x-text="group.name"></div>
                 <template x-for="agent in group.agents" :key="agent">
-                  <div class="agent-row" :class="agentStates[agent] || 'pending'">
+                  <div class="agent-row" :class="(perSymbol[currentSymbol]?.agentStates?.[agent]) || 'pending'">
                     <span class="dot"></span>
                     <span x-text="agent"></span>
                   </div>
@@ -193,7 +227,7 @@
 
         <!-- Messages column -->
         <div class="panel dense">
-          <div class="panel-title">Messages & Tools (<span x-text="messages.length"></span>)</div>
+          <div class="panel-title">Messages & Tools (<span x-text="visibleMessages.length"></span>)</div>
           <div class="messages" x-ref="messagesEl">
             <template x-for="(m, i) in visibleMessages" :key="i">
               <div class="msg" :class="'t-'+(m.type||'System')">
@@ -201,7 +235,7 @@
                 <span class="body" x-text="m.short"></span>
               </div>
             </template>
-            <div class="msg" x-show="!messages.length" style="color: var(--fg-muted);">
+            <div class="msg" x-show="!visibleMessages.length" style="color: var(--fg-muted);">
               <span class="tag">—</span>
               <span class="body">Waiting for events…</span>
             </div>
@@ -215,7 +249,7 @@
             <template x-for="tab in reportTabs" :key="tab.key">
               <button :class="{active: activeTab===tab.key}"
                       @click="activeTab=tab.key"
-                      x-text="tab.label + (reports[tab.key] ? ' ✓' : '')"></button>
+                      x-text="tab.label + ((perSymbol[currentSymbol]?.reports?.[tab.key]) ? ' ✓' : '')"></button>
             </template>
           </div>
           <div class="report-pane" x-html="renderedReport"></div>
