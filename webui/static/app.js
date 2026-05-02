@@ -112,6 +112,24 @@ function app() {
       return Math.max(6, ((layer.input || 0) / maxIn) * 100);
     },
 
+    chipClass(layer, sym) {
+      if (layer.layer === 4) return sym.picked ? 'picked' : 'dropped';
+      if (layer.layer === 3 && sym.has_smart_money) return 'smart';
+      if (layer.layer === 2 && sym.has_events) return 'event';
+      return '';
+    },
+    chipTitle(layer, sym) {
+      const parts = [`${sym.s} (L${layer.layer})`];
+      if (sym.score != null) parts.push(`score=${sym.score}`);
+      if (sym.rs_1m != null) parts.push(`rs1m=${sym.rs_1m.toFixed(1)}%`);
+      if (sym.rsi != null) parts.push(`rsi=${Math.round(sym.rsi)}`);
+      if (sym.vol_ratio != null) parts.push(`vol=${sym.vol_ratio.toFixed(1)}x`);
+      if (sym.events && sym.events.length) parts.push(`events: ${sym.events.join(', ')}`);
+      if (sym.smart_money && sym.smart_money.length) parts.push(`smart$: ${sym.smart_money.join(', ')}`);
+      if (layer.layer === 4) parts.push(sym.picked ? `PICKED [${(sym.conviction||'').toUpperCase()}]` : 'DROPPED');
+      return parts.join('  •  ');
+    },
+
     escape(s) { return (s || '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); },
 
     tickClock() {

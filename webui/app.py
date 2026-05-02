@@ -148,7 +148,7 @@ class StartRunRequest(BaseModel):
 async def start_run(req: StartRunRequest) -> dict[str, str]:
     if req.ticker_source == "manual" and not req.symbols:
         raise HTTPException(400, "symbols is required when ticker_source=manual")
-    if req.ticker_source not in {"manual", "scan-5", "scan-10", "scan-20"}:
+    if req.ticker_source not in {"manual", "scan-3", "scan-5", "scan-10", "scan-20"}:
         raise HTTPException(400, f"invalid ticker_source: {req.ticker_source}")
 
     # Cap manual symbols to 5 — multi-symbol runs are sequential and the

@@ -548,6 +548,54 @@ footer.status-bar strong { color: var(--fg-strong); }
 }
 .funnel-info { color: var(--fg-muted); font-size: 11px; }
 
+.funnel-block {
+  padding: 8px 0;
+  border-top: 1px dashed var(--border);
+}
+.funnel-block:first-child { border-top: none; }
+.funnel-block .funnel-row { padding: 0; border: none; }
+
+.symbol-chips {
+  display: flex; flex-wrap: wrap; gap: 4px;
+  margin-top: 8px; margin-left: 56px;
+  padding: 6px 0;
+}
+.sym-chip {
+  display: inline-flex; align-items: center; gap: 3px;
+  padding: 2px 7px; border-radius: 3px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--fg);
+  font-family: 'JetBrains Mono', monospace; font-size: 11px;
+  letter-spacing: 0.02em;
+  transition: all 0.15s;
+}
+.sym-chip:hover { border-color: var(--accent2); color: var(--fg-strong); }
+.sym-chip.event {
+  border-color: var(--accent2);
+  background: rgba(88,166,255,0.10);
+  color: var(--accent2);
+}
+.sym-chip.smart {
+  border-color: var(--magenta);
+  background: rgba(198,120,221,0.10);
+  color: var(--magenta);
+}
+.sym-chip.picked {
+  border-color: var(--green);
+  background: rgba(63,185,80,0.18);
+  color: var(--green); font-weight: 700;
+}
+.sym-chip.dropped {
+  border-color: var(--border);
+  background: var(--bg-2);
+  color: var(--fg-faint);
+  text-decoration: line-through;
+  text-decoration-color: var(--fg-faint);
+  opacity: 0.6;
+}
+.sym-mark { font-size: 10px; opacity: 0.9; }
+
 /* Plotly overrides */
 .js-plotly-plot .plotly .modebar { background: transparent !important; }
 

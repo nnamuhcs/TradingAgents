@@ -478,7 +478,13 @@ class MarketScanner:
         logger.info(f"  → Top 30 selected (score range: {score_high:.1f} – {score_low:.1f})")
         self._emit(layer=1, name="Quant Screening", status="done",
                    input=len(sp500), output=len(top30),
-                   info=f"Top 30 score range {score_high:.1f}–{score_low:.1f}")
+                   info=f"Top 30 score range {score_high:.1f}–{score_low:.1f}",
+                   symbols=[
+                       {"s": s["symbol"], "score": round(s.get("score", 0), 1),
+                        "rs_1m": s.get("rs_1m"), "vol_ratio": s.get("vol_ratio"),
+                        "rsi": s.get("rsi"), "at_20d_high": bool(s.get("at_20d_high"))}
+                       for s in top30
+                   ])
 
         # Layer 2: Event-Driven Prioritization
         logger.info(f"Layer 2: Checking event catalysts for top {len(top30)} stocks...")
@@ -490,7 +496,13 @@ class MarketScanner:
         logger.info(f"  → {events_found}/{len(top30)} stocks have event catalysts")
         self._emit(layer=2, name="Event Catalysts", status="done",
                    input=len(top30), output=events_found,
-                   info=f"{events_found} of {len(top30)} have catalysts")
+                   info=f"{events_found} of {len(top30)} have catalysts",
+                   symbols=[
+                       {"s": s["symbol"],
+                        "events": list(s.get("events") or []),
+                        "has_events": bool(s.get("events"))}
+                       for s in top30
+                   ])
 
         # Layer 3: Smart Money Signals
         logger.info(f"Layer 3: Checking smart money signals for top {len(top30)} stocks...")
@@ -502,7 +514,13 @@ class MarketScanner:
         logger.info(f"  → {smart_found}/{len(top30)} stocks have smart money signals")
         self._emit(layer=3, name="Smart Money", status="done",
                    input=len(top30), output=smart_found,
-                   info=f"{smart_found} of {len(top30)} flagged")
+                   info=f"{smart_found} of {len(top30)} flagged",
+                   symbols=[
+                       {"s": s["symbol"],
+                        "smart_money": list(s.get("smart_money_signals") or []),
+                        "has_smart_money": bool(s.get("smart_money_signals"))}
+                       for s in top30
+                   ])
 
         # Market context
         logger.info("Fetching market context (indices + sectors)...")
@@ -515,12 +533,22 @@ class MarketScanner:
                    info=f"{self.model} reviewing all {len(top30)} candidates")
         synthesis = _llm_synthesize(self.llm, top30, market_ctx)
         picks = synthesis.get("picks", [])
+        picked_set = {p["symbol"] for p in picks}
         logger.info(f"  → LLM selected {len(picks)} stocks")
         for p in picks:
             logger.info(f"    {p['symbol']} [{p['conviction']}]: {p['reasoning'][:80]}")
         self._emit(layer=4, name="LLM Synthesis", status="done",
                    input=len(top30), output=len(picks),
-                   info=f"Selected {len(picks)} with conviction reasoning")
+                   info=f"Selected {len(picks)} with conviction reasoning",
+                   symbols=[
+                       {"s": s["symbol"],
+                        "picked": s["symbol"] in picked_set,
+                        "conviction": next(
+                            (p.get("conviction") for p in picks if p["symbol"] == s["symbol"]),
+                            None,
+                        )}
+                       for s in top30
+                   ])
 
         return {
             "picks": picks,

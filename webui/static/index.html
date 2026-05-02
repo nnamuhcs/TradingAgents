@@ -189,18 +189,30 @@
       <div class="funnel" x-show="funnel.length" x-transition>
         <div class="funnel-title">Market Scanner Funnel</div>
         <template x-for="(layer, i) in funnel" :key="layer.layer">
-          <div class="funnel-row" :class="layer.status">
-            <div class="funnel-num" x-text="'L'+layer.layer"></div>
-            <div class="funnel-name" x-text="layer.name"></div>
-            <div class="funnel-bar">
-              <div class="bar-bg" :style="`width: ${barWidth(layer)}%`"></div>
-              <span class="bar-text">
-                <span x-text="layer.input != null ? layer.input : '—'"></span>
-                <span style="color: var(--fg-muted); margin: 0 6px;">→</span>
-                <span x-text="layer.output != null ? layer.output : '…'"></span>
-              </span>
+          <div class="funnel-block">
+            <div class="funnel-row" :class="layer.status">
+              <div class="funnel-num" x-text="'L'+layer.layer"></div>
+              <div class="funnel-name" x-text="layer.name"></div>
+              <div class="funnel-bar">
+                <div class="bar-bg" :style="`width: ${barWidth(layer)}%`"></div>
+                <span class="bar-text">
+                  <span x-text="layer.input != null ? layer.input : '—'"></span>
+                  <span style="color: var(--fg-muted); margin: 0 6px;">→</span>
+                  <span x-text="layer.output != null ? layer.output : '…'"></span>
+                </span>
+              </div>
+              <div class="funnel-info" x-text="layer.info || ''"></div>
             </div>
-            <div class="funnel-info" x-text="layer.info || ''"></div>
+            <div class="symbol-chips" x-show="layer.symbols && layer.symbols.length">
+              <template x-for="sym in (layer.symbols || [])" :key="sym.s">
+                <span class="sym-chip" :class="chipClass(layer, sym)" :title="chipTitle(layer, sym)">
+                  <span x-text="sym.s"></span>
+                  <span x-show="layer.layer === 2 && sym.has_events" class="sym-mark">📅</span>
+                  <span x-show="layer.layer === 3 && sym.has_smart_money" class="sym-mark">$</span>
+                  <span x-show="layer.layer === 4 && sym.picked" class="sym-mark">★</span>
+                </span>
+              </template>
+            </div>
           </div>
         </template>
       </div>
@@ -355,18 +367,30 @@
     <div class="funnel" x-show="scanFunnel.length" x-transition>
       <div class="funnel-title">Scanner Pipeline</div>
       <template x-for="layer in scanFunnel" :key="layer.layer">
-        <div class="funnel-row" :class="layer.status">
-          <div class="funnel-num" x-text="'L'+layer.layer"></div>
-          <div class="funnel-name" x-text="layer.name"></div>
-          <div class="funnel-bar">
-            <div class="bar-bg" :style="`width: ${barWidth(layer, scanFunnel)}%`"></div>
-            <span class="bar-text">
-              <span x-text="layer.input != null ? layer.input : '—'"></span>
-              <span style="color: var(--fg-muted); margin: 0 6px;">→</span>
-              <span x-text="layer.output != null ? layer.output : '…'"></span>
-            </span>
+        <div class="funnel-block">
+          <div class="funnel-row" :class="layer.status">
+            <div class="funnel-num" x-text="'L'+layer.layer"></div>
+            <div class="funnel-name" x-text="layer.name"></div>
+            <div class="funnel-bar">
+              <div class="bar-bg" :style="`width: ${barWidth(layer, scanFunnel)}%`"></div>
+              <span class="bar-text">
+                <span x-text="layer.input != null ? layer.input : '—'"></span>
+                <span style="color: var(--fg-muted); margin: 0 6px;">→</span>
+                <span x-text="layer.output != null ? layer.output : '…'"></span>
+              </span>
+            </div>
+            <div class="funnel-info" x-text="layer.info || ''"></div>
           </div>
-          <div class="funnel-info" x-text="layer.info || ''"></div>
+          <div class="symbol-chips" x-show="layer.symbols && layer.symbols.length">
+            <template x-for="sym in (layer.symbols || [])" :key="sym.s">
+              <span class="sym-chip" :class="chipClass(layer, sym)" :title="chipTitle(layer, sym)">
+                <span x-text="sym.s"></span>
+                <span x-show="layer.layer === 2 && sym.has_events" class="sym-mark">📅</span>
+                <span x-show="layer.layer === 3 && sym.has_smart_money" class="sym-mark">$</span>
+                <span x-show="layer.layer === 4 && sym.picked" class="sym-mark">★</span>
+              </span>
+            </template>
+          </div>
         </div>
       </template>
     </div>
