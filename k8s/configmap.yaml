@@ -9,9 +9,9 @@ data:
   # LLM Provider: openai, anthropic, google, github-copilot, xai, deepseek, ollama
   LLM_PROVIDER: "github-copilot"
   # Model for complex reasoning (debates, decisions)
-  DEEP_THINK_LLM: "claude-opus-4.7-1m-internal"
+  DEEP_THINK_LLM: "claude-opus-4.7"
   # Model for fast tasks (data fetching, parsing)
-  QUICK_THINK_LLM: "claude-opus-4.7-1m-internal"
+  QUICK_THINK_LLM: "claude-opus-4.7"
   # Data vendors: yfinance (free) or alpha_vantage (requires key)
   DATA_VENDOR: "yfinance"
   # Trading config

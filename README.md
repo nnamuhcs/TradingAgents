@@ -97,8 +97,8 @@ All config is via environment variables (K8s ConfigMap):
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `LLM_PROVIDER` | `github-copilot` | LLM provider (openai, anthropic, google, github-copilot, xai, deepseek, ollama) |
-| `DEEP_THINK_LLM` | `claude-opus-4.7-1m-internal` | Model for complex reasoning (debates, decisions) |
-| `QUICK_THINK_LLM` | `claude-opus-4.7-1m-internal` | Model for fast tasks (data pulling, parsing) |
+| `DEEP_THINK_LLM` | `claude-opus-4.7` | Model for complex reasoning (debates, decisions) |
+| `QUICK_THINK_LLM` | `claude-opus-4.7` | Model for fast tasks (data pulling, parsing) |
 | `DATA_VENDOR` | `yfinance` | Market data source (yfinance or alpha_vantage) |
 | `TRADING_SYMBOLS` | `NVDA` | Comma-separated stock symbols to analyze |
 | `ANALYSIS_DATE` | Yesterday | Date to analyze (YYYY-MM-DD) |
@@ -129,7 +129,7 @@ This fork adds `github-copilot` as an LLM provider, using your existing Copilot 
 
 - Endpoint: `https://api.githubcopilot.com/chat/completions`
 - Auth: GitHub PAT with Copilot access
-- Available models: `claude-opus-4.7`, `claude-opus-4.7-1m-internal`, `claude-sonnet-4`, `gpt-4o`, `gpt-4o-mini`, `gpt-5.4`, and more
+- Available models: `claude-opus-4.7`, `claude-sonnet-4`, `gpt-4o`, `gpt-4o-mini`, `gpt-5.4`, and more
 - No extra API costs beyond your Copilot subscription
 
 ## Supported Providers
