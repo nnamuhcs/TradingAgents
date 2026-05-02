@@ -166,3 +166,33 @@ kubectl delete namespace tradingagents
 ## Credits
 
 Based on [TradingAgents](https://github.com/tauricresearch/tradingagents) by [Tauric Research](https://tauric.ai). See the original repo for the research paper and framework details.
+
+## Changes from Upstream
+
+This fork adds the following on top of the original TradingAgents framework:
+
+### GitHub Copilot Provider
+- Added `github-copilot` as a new OpenAI-compatible LLM provider in `tradingagents/llm_clients/`
+- Routes through `https://api.githubcopilot.com/chat/completions` with `Copilot-Integration-Id` header
+- Uses standard Chat Completions API (not OpenAI Responses API)
+- Authenticates with a GitHub PAT that has Copilot access
+- No extra API costs -- uses your existing Copilot subscription
+- Added model catalog entries for Copilot-available models (Claude Opus 4.7, Sonnet 4, GPT-5.4, GPT-4o, etc.)
+
+### Environment-Driven Configuration
+- Rewrote `main_copilot.py` to read all config from environment variables
+- Supports multi-symbol analysis (`TRADING_SYMBOLS=NVDA,AAPL,MSFT`)
+- CLI override: `python main_copilot.py AAPL,MSFT 2025-05-01`
+- Saves results as JSON with timestamps
+
+### Kubernetes Deployment
+- Full K8s manifest set in `k8s/`:
+  - `namespace.yaml` -- dedicated namespace
+  - `secret.yaml` -- API token storage
+  - `configmap.yaml` -- all trading config (provider, models, symbols, language)
+  - `pvc.yaml` -- 5Gi persistent storage for logs, cache, and trading memory
+  - `cronjob.yaml` -- automated daily runs at market open (9:30 AM ET, Mon-Fri)
+  - `job-manual.yaml` -- on-demand manual analysis
+  - `deploy.sh` -- one-command deploy script with `--build` and `--token` flags
+- Works on any K8s cluster: Kind, Minikube, EKS, GKE, AKS
+- Tested end-to-end on a local Kind cluster with Claude Opus 4.7 1M context
