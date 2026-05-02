@@ -390,6 +390,63 @@ async def api_scan(n: int = 10) -> dict[str, Any]:
     }
 
 
+@app.get("/api/scan/stream")
+async def api_scan_stream(n: int = 10) -> StreamingResponse:
+    """Server-Sent Events stream of scanner progress + final picks.
+
+    Emits one `scanner_layer` event per layer transition (4 layers), then a
+    final `picks` event with the picks/market_regime/themes payload.
+    """
+    n = max(1, min(n, 20))
+    provider = os.getenv("LLM_PROVIDER", "github-copilot")
+    model = os.getenv("SCANNER_LLM") or os.getenv("DEEP_THINK_LLM", "claude-opus-4.7")
+
+    import asyncio
+    import json as _json
+
+    queue: asyncio.Queue = asyncio.Queue()
+    loop = asyncio.get_event_loop()
+
+    def _on_progress(event: dict) -> None:
+        # Called from a thread executor; bounce events back to the asyncio loop
+        loop.call_soon_threadsafe(queue.put_nowait, ("scanner_layer", event))
+
+    def _run_scan() -> dict:
+        scanner = MarketScanner(provider=provider, model=model, progress_callback=_on_progress)
+        return scanner.scan()
+
+    async def producer():
+        try:
+            result = await loop.run_in_executor(None, _run_scan)
+            detailed = result.get("detailed", {})
+            await queue.put(("picks", {
+                "picks": (detailed.get("picks") or [])[:n],
+                "market_regime": detailed.get("market_regime"),
+                "themes": detailed.get("themes"),
+                "candidates": detailed.get("candidates", []),
+                "all_scored": detailed.get("all_scored"),
+            }))
+        except Exception as e:  # pragma: no cover
+            await queue.put(("error", {"message": str(e)}))
+        finally:
+            await queue.put(("done", {}))
+
+    asyncio.create_task(producer())
+
+    async def gen():
+        while True:
+            event, data = await queue.get()
+            yield f"event: {event}\ndata: {_json.dumps(data, default=str)}\n\n"
+            if event == "done":
+                break
+
+    return StreamingResponse(
+        gen(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
 @app.get("/api/movers/stream")
 async def api_movers_stream(
     pinned: str = "",

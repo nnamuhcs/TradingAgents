@@ -350,9 +350,30 @@
         <span x-show="scanning">Scanning…</span>
       </button>
     </div>
+
+    <!-- Live funnel during scanner-tab scans -->
+    <div class="funnel" x-show="scanFunnel.length" x-transition>
+      <div class="funnel-title">Scanner Pipeline</div>
+      <template x-for="layer in scanFunnel" :key="layer.layer">
+        <div class="funnel-row" :class="layer.status">
+          <div class="funnel-num" x-text="'L'+layer.layer"></div>
+          <div class="funnel-name" x-text="layer.name"></div>
+          <div class="funnel-bar">
+            <div class="bar-bg" :style="`width: ${barWidth(layer, scanFunnel)}%`"></div>
+            <span class="bar-text">
+              <span x-text="layer.input != null ? layer.input : '—'"></span>
+              <span style="color: var(--fg-muted); margin: 0 6px;">→</span>
+              <span x-text="layer.output != null ? layer.output : '…'"></span>
+            </span>
+          </div>
+          <div class="funnel-info" x-text="layer.info || ''"></div>
+        </div>
+      </template>
+    </div>
+
     <p x-show="scanResult.market_regime"><strong>Market Regime:</strong> <span x-text="scanResult.market_regime"></span></p>
     <p x-show="scanResult.themes && scanResult.themes.length"><strong>Themes:</strong> <span x-text="(scanResult.themes||[]).join(', ')"></span></p>
-    <table>
+    <table x-show="(scanResult.picks || []).length">
       <thead><tr><th>#</th><th>Symbol</th><th>Conviction</th><th>Reasoning</th></tr></thead>
       <tbody>
         <template x-for="(p, i) in (scanResult.picks||[])" :key="p.symbol">

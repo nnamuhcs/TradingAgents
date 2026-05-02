@@ -52,6 +52,7 @@ function app() {
     scanResult: {},
     scanN: 10,
     scanning: false,
+    scanFunnel: [],
 
     // Marquee
     clockNow: '',
@@ -105,9 +106,9 @@ function app() {
       return (this.form.symbols_str || '').split(',').map(s => s.trim()).filter(Boolean).length;
     },
 
-    barWidth(layer) {
-      // Funnel bar width: 100% for the input universe (max), shrinking to fit
-      const maxIn = Math.max(...this.funnel.map(l => l.input || 0), 1);
+    barWidth(layer, list) {
+      const universe = list || this.funnel;
+      const maxIn = Math.max(...universe.map(l => l.input || 0), 1);
       return Math.max(6, ((layer.input || 0) / maxIn) * 100);
     },
 
@@ -487,13 +488,42 @@ function app() {
     },
 
     // ─────────────────── scanner ───────────────────
-    async runScanner() {
+    runScanner() {
       this.scanning = true;
       this.scanResult = {};
-      try {
-        const res = await fetch(`/api/scan?n=${this.scanN}`);
-        this.scanResult = await res.json();
-      } finally { this.scanning = false; }
+      this.scanFunnel = [];
+
+      const es = new EventSource(`/api/scan/stream?n=${this.scanN}`);
+
+      es.addEventListener('scanner_layer', (e) => {
+        const d = JSON.parse(e.data);
+        const idx = this.scanFunnel.findIndex(l => l.layer === d.layer);
+        if (idx >= 0) {
+          const updated = { ...this.scanFunnel[idx], ...d };
+          this.scanFunnel = [
+            ...this.scanFunnel.slice(0, idx),
+            updated,
+            ...this.scanFunnel.slice(idx + 1),
+          ];
+        } else {
+          this.scanFunnel = [...this.scanFunnel, d];
+        }
+      });
+      es.addEventListener('picks', (e) => {
+        this.scanResult = JSON.parse(e.data);
+      });
+      es.addEventListener('error', (e) => {
+        try {
+          const d = JSON.parse(e.data);
+          this.scanResult = { error: d.message || 'Scanner error' };
+        } catch (_) {}
+        this.scanning = false;
+      });
+      es.addEventListener('done', () => {
+        es.close();
+        this.scanning = false;
+      });
+      es.onerror = () => { /* SSE auto-reconnect */ };
     },
 
     // ─────────────────── marquee ───────────────────

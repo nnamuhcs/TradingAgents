@@ -166,33 +166,98 @@ kubectl -n tradingagents port-forward svc/tradingagents-webui 8000:80
 
 ---
 
-## ▶ Running on K8s — WebUI mode (browser)
+## ▶ Running on K8s — WebUI mode (browser, recommended)
 
 ```bash
 kubectl -n tradingagents port-forward svc/tradingagents-webui 8000:80
 ```
 
-Then open **http://localhost:8000** in any browser:
+Then open **http://localhost:8000** in any browser.
 
-- **New Run** tab — pick ticker source, date, analysts, depth, then click *Start analysis*. The live log streams as the agents execute. When done, click *Show chart* on any decision to see the 4-pane Plotly chart.
-- **History** tab — every past run with its decisions; click *View* to reopen.
-- **Scanner** tab — run the Market Scanner standalone with N=1..20 picks.
+### What you can do in the browser
 
-API endpoints (also useful for scripting):
+The single-page app has three tabs and a few persistent UI elements:
+
+#### Top — scrolling market ticker (always visible)
+A Bloomberg/CNBC-style horizontal marquee fed by Yahoo's WebSocket (real-time when the WS is healthy, falls back to a 60s yfinance poll otherwise). The bar combines four sources:
+
+- **Anchors** (always shown) — SPY, QQQ, DIA, IWM, ^VIX, ^IXIC/^GSPC/^DJI, GLD/SLV/USO/TLT/HYG, EURUSD=X, USDJPY=X, BTC-USD, ETH-USD
+- **Pinned** — your custom watchlist (click `⚙ Watchlist` in the nav, add tickers like `AVGO` or `^VIX`, persisted in browser localStorage)
+- **Recent** — symbols from your last 30 days of runs, auto-pulled from Postgres
+- **Top movers** — top gainers (green) + top losers (red) from S&P 500 + bellwethers, recomputed every minute
+
+Hover the marquee → it pauses so you can read a value. Status bar at the bottom shows **● LIVE** (green) when WS is healthy, **○ POLL 60s** (yellow) on fallback.
+
+#### New Run tab
+Form fields:
+
+- **Ticker source**: *manual* (type comma-separated symbols, up to 5), *Scanner: top 3 picks*, or *Scanner: top 5 picks*
+- **Symbols**: comma-separated; warns yellow if you type more than 5
+- **Analysis date**: defaults to today
+- **Analysts**: 4 checkboxes (Market / Social / News / Fundamentals)
+- **Research depth**: *Shallow / Medium / Deep* (1 / 3 / 5 debate rounds — same as the TUI)
+- **Language**: 13 options (English, 简体中文, 繁體中文, 日本語, 한국어, Español, Français, Deutsch, Português, Italiano, Русский, العربية, हिन्दी)
+- **Advanced**: provider, deep model, quick model, anthropic effort
+
+Click **Start Analysis**. The Live Output panel comes alive:
+
+1. **Symbol tabs** appear once the runner knows what symbols to analyze (immediate for manual, after the scanner finishes for scan-N). Each tab has a coloured dot: yellow pulsing for in_progress, green for done. Auto-flips to the current symbol; you can click any tab to inspect it manually.
+
+2. **Scanner Funnel** — only when you used a scanner ticker source. A 4-row visualization fills in live as the scanner progresses through its layers:
+   ```
+   L1  Quant Screening  ████████████████████  503 → 30   Top 30 score range 12.3–8.1
+   L2  Event Catalysts  ████                   30 → 14   14 of 30 have catalysts
+   L3  Smart Money      ████                   30 →  9   9 of 30 flagged
+   L4  LLM Synthesis    ████                   30 →  5   Selected 5 with conviction
+   ```
+
+3. **Three-pane TUI mirror**:
+   - **Left — Agents**: 12-row checklist grouped by stage (Analysts / Research / Trader / Risk Mgmt). Each agent has a coloured dot and matching text colour.
+   - **Middle — Messages & Tools**: live stream with type-coloured borders (Agent=teal, Data=azure, User=magenta, Tool=yellow, System=grey). Auto-scrolls.
+   - **Right — Current Report**: tabbed Markdown rendering of the 7 report sections (market / sentiment / news / fundamentals / investment_plan / trader_plan / final_decision). Auto-switches to the latest section. A `✓` next to the tab label shows which sections have content.
+
+4. **Decisions** — when each symbol completes its decision card appears with three buttons: **📄 Full Report** (modal viewer), **⬇ .md** (download as markdown), **📊 Chart** (4-pane Plotly: candlestick + volume + RSI + MACD).
+
+#### History tab
+Every past run with timestamp, symbols, status badge, and per-symbol decisions. Per-row buttons:
+- **View** — load this run back into the New Run dashboard (replays the per-symbol tabs with their saved reports — no LLM call)
+- **📄 SYMBOL** — open the Full Report modal for that symbol directly
+- **Cancel** — appears next to running/pending rows; marks them cancelled (background reaper auto-fails any run that's >30 min old in pending/running state)
+
+#### Scanner tab
+Standalone Market Scanner (no analysis run). Pick 1–20, click **Scan**. Same 4-row funnel visualization as the New Run page fills in live as the scanner progresses through its layers, then the picks table renders with market regime + themes + per-pick conviction & reasoning. Runs over SSE (`/api/scan/stream`) so you see progress instead of a blank page for 60–90s.
+
+### Full Report viewer & download
+
+Every completed run persists each section's markdown to Postgres (`runs.reports JSONB`). The **📄 Full Report** button opens a modal with:
+- The assembled report: metadata header → Final Decision → 7 numbered sections with all sub-headings
+- Toolbar: **⬇ Download .md**, **📋 Copy** (clipboard), **🖨 Print** (opens a print-styled tab), **✕ Close**
+
+Or call the endpoint directly:
+```bash
+curl http://localhost:8000/api/runs/RUN_ID/report.md?symbol=AAPL > AAPL_report.md
+```
+
+### REST API
 
 | Method | Path | Description |
 |---|---|---|
 | `POST` | `/api/runs` | Start a run; body has `ticker_source` / `symbols` / `analysis_date` / `analysts` / etc. |
-| `GET` | `/api/runs/{id}` | Run metadata + decisions |
-| `GET` | `/api/runs/{id}/events` | **SSE** live event stream while running |
-| `GET` | `/api/runs?limit=N` | List past runs (newest first) |
-| `GET` | `/api/scan?n=10` | Run the Market Scanner, return picks |
-| `GET` | `/api/chart/{symbol}?period=6mo` | OHLCV + RSI + MACD JSON for Plotly |
-| `GET` | `/healthz` | Liveness probe |
+| `GET`  | `/api/runs/{id}` | Run metadata + decisions + reports |
+| `GET`  | `/api/runs/{id}/events` | **SSE** live event stream (`agent_status`, `message`, `tool_call`, `report_section`, `scanner_layer`, `symbol_start/done`, …) |
+| `GET`  | `/api/runs?limit=N` | List past runs (newest first; auto-reaps stale runs) |
+| `POST` | `/api/runs/{id}/cancel` | Mark a run as cancelled |
+| `GET`  | `/api/runs/{id}/report?symbol=X` | Assembled markdown JSON for one or all symbols |
+| `GET`  | `/api/runs/{id}/report.md?symbol=X` | Same as a downloadable .md file |
+| `GET`  | `/api/scan?n=10` | Run the Market Scanner (blocking), return picks |
+| `GET`  | `/api/scan/stream?n=10` | **SSE** scanner stream: `scanner_layer` events per layer + final `picks` event |
+| `GET`  | `/api/chart/{symbol}?period=6mo` | OHLCV + RSI + MACD JSON for Plotly |
+| `GET`  | `/api/movers/stream?pinned=…` | **SSE** marquee feed (anchors + pinned + recent + top movers, live-overlaid by Yahoo WS) |
+| `GET`  | `/healthz` | Liveness probe |
 
 ### Why a separate WebUI image?
 
-The WebUI needs `fastapi`, `uvicorn`, `sqlalchemy`, `asyncpg` which aren't required for the TUI / batch worker. The `[webui]` extra in `pyproject.toml` keeps these out of the lean worker image; the WebUI uses `Dockerfile.webui` which `pip install '.[webui]'`s them.
+The WebUI needs `fastapi`, `uvicorn`, `sqlalchemy`, `asyncpg`, `websockets` which aren't required for the TUI / batch worker. The `[webui]` extra in `pyproject.toml` keeps these out of the lean worker image; the WebUI uses `Dockerfile.webui` which installs `pip install '.[webui]'`.
 
 ---
 
