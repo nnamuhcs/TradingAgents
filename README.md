@@ -32,8 +32,48 @@ pip install -e .
 # Configure
 echo "GITHUB_TOKEN=your_github_pat_here" > .env
 
-# Run
+# Analyze a specific stock
 python main_copilot.py NVDA 2025-05-01
+
+# Analyze multiple stocks
+python main_copilot.py NVDA,AAPL,MSFT 2025-05-01
+```
+
+## Market Scanner (AI Stock Discovery)
+
+The scanner automatically finds the best stocks to analyze using a 4-layer AI pipeline:
+
+1. **Quant Screening** -- Scores all S&P 500 stocks on relative strength, volume breakouts, price breakouts, and momentum (RSI/MACD). Narrows ~500 to top 30.
+2. **Event-Driven** -- Boosts stocks with upcoming earnings, analyst upgrades, and news catalysts.
+3. **Smart Money** -- Checks insider buying/selling and institutional holder activity.
+4. **LLM Synthesis** -- Claude analyzes all 30 candidates with full signal data, picks 5-10 with conviction levels (high/medium/low) and per-stock reasoning.
+
+```bash
+# Full pipeline: scan market -> pick stocks -> run full analysis on each
+python main_scanner.py
+
+# Scan only (just get stock picks, no deep analysis)
+python main_scanner.py --scan-only
+
+# Limit how many picks get full analysis
+python main_scanner.py --max-picks 3
+
+# Via env vars (for K8s)
+SCANNER_MODE=scan-only python main_scanner.py
+SCANNER_MAX_PICKS=5 python main_scanner.py
+```
+
+### Example Scanner Output
+
+```
+1. *** AVGO   [HIGH]   - AI/semis leader, +34% 1m, RSI 70, institutions accumulating
+2. *** GOOGL  [HIGH]   - Mega-cap breakout, AI/Gemini momentum, +20% 1m
+3. **  AMD    [MEDIUM] - Earnings catalyst, +66% 1m, AI accelerator demand
+4. **  CAT    [MEDIUM] - Industrial breakout, data center infrastructure theme
+5. **  CSCO   [MEDIUM] - Earnings catalyst, AI networking narrative
+6. **  LLY    [MEDIUM] - Healthcare laggard rebasing, GLP-1 bottom forming
+7. **  AAPL   [MEDIUM] - Volume breakout on 20d high, defensive growth
+8. **  NVDA   [MEDIUM] - Pullback in AI leader, mean-reversion entry
 ```
 
 ## Deploy to K8s
@@ -104,6 +144,9 @@ All config is via environment variables (K8s ConfigMap):
 | `ANALYSIS_DATE` | Yesterday | Date to analyze (YYYY-MM-DD) |
 | `MAX_DEBATE_ROUNDS` | `1` | Bull/Bear debate rounds |
 | `OUTPUT_LANGUAGE` | `English` | Output language |
+| `SCANNER_MODE` | `full` | Scanner mode: `full` (scan + analyze) or `scan-only` |
+| `SCANNER_MAX_PICKS` | `10` | Max stocks to run full analysis on |
+| `SCANNER_LLM` | `claude-opus-4.7` | Model for scanner LLM synthesis |
 
 Edit the ConfigMap:
 ```bash
