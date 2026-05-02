@@ -13,6 +13,9 @@ function app() {
     scanN: 10,
     scanning: false,
 
+    clockNow: '',
+    marketTicker: [],
+
     form: {
       ticker_source: 'manual',
       symbols_str: 'NVDA',
@@ -27,7 +30,47 @@ function app() {
       anthropic_effort: 'high',
     },
 
-    init() { /* empty */ },
+    init() {
+      this.tickClock();
+      setInterval(() => this.tickClock(), 1000);
+      this.refreshTicker();
+      setInterval(() => this.refreshTicker(), 60000);
+    },
+
+    tickClock() {
+      const d = new Date();
+      const yyyy = d.getFullYear();
+      const mm = String(d.getMonth() + 1).padStart(2, '0');
+      const dd = String(d.getDate()).padStart(2, '0');
+      const hh = String(d.getHours()).padStart(2, '0');
+      const mi = String(d.getMinutes()).padStart(2, '0');
+      const ss = String(d.getSeconds()).padStart(2, '0');
+      const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
+      this.clockNow = `${yyyy}-${mm}-${dd} ${hh}:${mi}:${ss} ${tz}`;
+    },
+
+    async refreshTicker() {
+      // Pull a small set of bellwether tickers so the bar always has something.
+      const watchlist = ['SPY', 'QQQ', 'DIA', 'IWM', '^VIX', 'NVDA', 'AAPL', 'MSFT', 'GOOG', 'TSLA', 'BTC-USD'];
+      try {
+        const tasks = watchlist.map(s =>
+          fetch(`/api/chart/${encodeURIComponent(s)}?period=5d`).then(r => r.ok ? r.json() : null).catch(() => null)
+        );
+        const results = await Promise.all(tasks);
+        const out = [];
+        for (const d of results) {
+          if (!d || !d.close || d.close.length < 2) continue;
+          const last = d.close[d.close.length - 1];
+          const prev = d.close[d.close.length - 2];
+          if (last == null || prev == null) continue;
+          const c = ((last - prev) / prev) * 100;
+          out.push({ s: (d.symbol || '').replace('^', ''), p: last, c });
+        }
+        if (out.length) this.marketTicker = out;
+      } catch (e) {
+        console.warn('ticker refresh failed', e);
+      }
+    },
 
     async startRun() {
       this.error = '';
@@ -139,27 +182,36 @@ function app() {
         {
           x: d.dates, open: d.open, high: d.high, low: d.low, close: d.close,
           type: 'candlestick', name: symbol, yaxis: 'y',
+          increasing: { line: { color: '#00ff66' } },
+          decreasing: { line: { color: '#ff3b3b' } },
         },
         {
           x: d.dates, y: d.volume, type: 'bar', name: 'Volume',
-          marker: { color: '#888' }, yaxis: 'y2', opacity: 0.4,
+          marker: { color: '#ffa500' }, yaxis: 'y2', opacity: 0.5,
         },
-        { x: d.dates, y: d.rsi, name: 'RSI(14)', yaxis: 'y3', line: { color: '#f0b400' } },
-        { x: d.dates, y: d.macd, name: 'MACD', yaxis: 'y4', line: { color: '#1f77b4' } },
-        { x: d.dates, y: d.macd_signal, name: 'Signal', yaxis: 'y4', line: { color: '#ff7f0e' } },
+        { x: d.dates, y: d.rsi, name: 'RSI(14)', yaxis: 'y3', line: { color: '#ffd400', width: 1.5 } },
+        { x: d.dates, y: d.macd, name: 'MACD', yaxis: 'y4', line: { color: '#00d4ff', width: 1.5 } },
+        { x: d.dates, y: d.macd_signal, name: 'Signal', yaxis: 'y4', line: { color: '#ff5fff', width: 1.5 } },
       ];
       const layout = {
-        title: `${symbol} — 6mo`,
-        height: 700,
+        title: { text: `${symbol}  •  6-MONTH OHLCV / RSI / MACD`, font: { color: '#ffa500', size: 13, family: 'JetBrains Mono, monospace' } },
+        height: 720,
         showlegend: true,
+        legend: { orientation: 'h', y: -0.15, font: { color: '#d8d8d8', size: 10, family: 'JetBrains Mono, monospace' } },
+        paper_bgcolor: '#000',
+        plot_bgcolor:  '#000',
+        font: { color: '#d8d8d8', family: 'JetBrains Mono, monospace', size: 10 },
+        margin: { l: 50, r: 30, t: 40, b: 40 },
         grid: { rows: 4, columns: 1, pattern: 'independent' },
-        yaxis:  { domain: [0.55, 1.0], title: 'Price' },
-        yaxis2: { domain: [0.40, 0.55], title: 'Volume' },
-        yaxis3: { domain: [0.20, 0.38], title: 'RSI' },
-        yaxis4: { domain: [0.00, 0.18], title: 'MACD' },
-        xaxis:  { rangeslider: { visible: false } },
+        yaxis:  { domain: [0.55, 1.0], title: 'PRICE', gridcolor: '#222', zerolinecolor: '#333', tickfont: { color: '#ffa500' } },
+        yaxis2: { domain: [0.40, 0.55], title: 'VOLUME', gridcolor: '#222', zerolinecolor: '#333', tickfont: { color: '#ffa500' } },
+        yaxis3: { domain: [0.20, 0.38], title: 'RSI', gridcolor: '#222', zerolinecolor: '#333', tickfont: { color: '#ffa500' },
+                  range: [0, 100] },
+        yaxis4: { domain: [0.00, 0.18], title: 'MACD', gridcolor: '#222', zerolinecolor: '#333', tickfont: { color: '#ffa500' } },
+        xaxis:  { rangeslider: { visible: false }, gridcolor: '#222', tickfont: { color: '#ffa500' } },
       };
-      Plotly.newPlot(this.$refs.chartEl, traces, layout, { responsive: true });
+      const cfg = { responsive: true, displaylogo: false, modeBarButtonsToRemove: ['lasso2d', 'select2d'] };
+      Plotly.newPlot(this.$refs.chartEl, traces, layout, cfg);
     },
 
     async loadHistory() {

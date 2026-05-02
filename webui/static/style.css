@@ -1,98 +1,401 @@
+/* TradingAgents WebUI — Bloomberg-style terminal aesthetic.
+   Black canvas, amber primary, green/red P&L, monospace everywhere,
+   dense tables, hard 1px borders. */
+
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap');
+
 :root {
-  --bg: #0f1115;
-  --panel: #1a1d24;
-  --border: #2a2e38;
-  --fg: #e6e8eb;
-  --muted: #8a93a3;
-  --accent: #4f9eed;
-  --accent-fg: #fff;
-  --green: #41b883;
-  --yellow: #f0b400;
-  --red: #ef4444;
-  --ok: #41b883;
+  --bg:           #000000;
+  --bg-panel:     #0a0a0a;
+  --bg-panel-2:   #111418;
+  --bg-row:       #060606;
+  --bg-row-alt:   #0e0f12;
+  --border:       #2a2a2a;
+  --border-hard:  #ffa500;
+
+  --amber:        #ffa500;
+  --amber-dim:    #b87a00;
+  --amber-bright: #ffc14d;
+
+  --green:        #00ff66;
+  --green-dim:    #00b34a;
+  --red:          #ff3b3b;
+  --red-dim:      #c12121;
+
+  --fg:           #d8d8d8;
+  --fg-muted:     #7a7a7a;
+  --cyan:         #00d4ff;
+  --magenta:      #ff5fff;
+  --yellow:       #ffd400;
 }
 
 * { box-sizing: border-box; }
-body {
-  margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  background: var(--bg); color: var(--fg);
+html, body {
+  margin: 0; padding: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', 'Courier New', monospace;
+  font-size: 12px;
+  line-height: 1.4;
+  letter-spacing: 0.01em;
+  -webkit-font-smoothing: antialiased;
 }
-header {
-  display: flex; align-items: center; gap: 1.5rem;
-  padding: 1rem 2rem; border-bottom: 1px solid var(--border); background: var(--panel);
-}
-header h1 { margin: 0; font-size: 1.25rem; }
-nav { display: flex; gap: 0.5rem; }
-nav button {
-  background: transparent; border: 1px solid transparent; color: var(--muted);
-  padding: 0.4rem 0.9rem; border-radius: 6px; cursor: pointer; font-size: 0.9rem;
-}
-nav button:hover { background: var(--border); color: var(--fg); }
-nav button.active { background: var(--accent); color: var(--accent-fg); }
-main { padding: 1.5rem 2rem; max-width: 1400px; margin: 0 auto; }
-h2 { margin-top: 0; font-size: 1.1rem; }
-h3 { font-size: 1rem; margin: 1rem 0 0.5rem; }
-h4 { margin: 0.5rem 0 0.25rem; color: var(--accent); }
 
-.grid { display: grid; grid-template-columns: 380px 1fr; gap: 1.5rem; }
+/* ──────────────────────── HEADER ──────────────────────── */
+header {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  padding: 0;
+  border-bottom: 2px solid var(--amber);
+  background: var(--bg-panel);
+}
+header h1 {
+  margin: 0;
+  padding: 8px 16px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--amber);
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+  border-right: 1px solid var(--border);
+  background: var(--bg-panel-2);
+}
+header h1::before {
+  content: "▌";
+  margin-right: 6px;
+  color: var(--amber);
+}
+nav {
+  display: flex;
+  gap: 0;
+  flex: 1;
+}
+nav button {
+  background: transparent;
+  border: none;
+  border-right: 1px solid var(--border);
+  color: var(--fg-muted);
+  padding: 8px 18px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  transition: none;
+}
+nav button:hover {
+  background: var(--bg-panel-2);
+  color: var(--amber);
+}
+nav button.active {
+  background: var(--amber);
+  color: #000;
+  font-weight: 700;
+}
+
+/* Right-aligned stats in the header */
+header::after {
+  content: "TRADINGAGENTS  •  GitHub Copilot  •  Local k3s";
+  margin-left: auto;
+  padding: 8px 16px;
+  font-size: 10px;
+  color: var(--fg-muted);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  border-left: 1px solid var(--border);
+}
+
+/* ──────────────────────── MAIN ──────────────────────── */
+main {
+  padding: 12px;
+  max-width: 1600px;
+  margin: 0 auto;
+}
+section { margin-bottom: 12px; }
+
+h2, h3, h4 {
+  font-family: inherit;
+  font-weight: 700;
+  color: var(--amber);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  margin: 0 0 8px;
+}
+h2 { font-size: 12px; padding: 4px 0; border-bottom: 1px solid var(--amber-dim); }
+h3 { font-size: 11px; color: var(--amber-bright); margin-top: 12px; }
+h4 { font-size: 11px; color: var(--cyan); }
+
+/* ──────────────────────── GRID + PANELS ──────────────────────── */
+.grid {
+  display: grid;
+  grid-template-columns: 360px 1fr;
+  gap: 8px;
+}
 @media (max-width: 1100px) { .grid { grid-template-columns: 1fr; } }
 
 .form-card, .output-card {
-  background: var(--panel); border: 1px solid var(--border);
-  border-radius: 8px; padding: 1.25rem;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  padding: 10px 14px 14px;
 }
+.form-card { border-top: 2px solid var(--amber); }
+.output-card { border-top: 2px solid var(--cyan); }
 
-label { display: block; margin: 0.75rem 0 0.25rem; font-size: 0.85rem; color: var(--muted); }
+/* ──────────────────────── FORM CONTROLS ──────────────────────── */
+label {
+  display: block;
+  margin: 8px 0 3px;
+  font-size: 10px;
+  color: var(--fg-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
 input[type=text], input[type=date], input[type=number], select, textarea {
-  width: 100%; padding: 0.5rem 0.6rem; background: #0f1115;
-  border: 1px solid var(--border); color: var(--fg); border-radius: 6px;
-  font-family: inherit; font-size: 0.9rem;
+  width: 100%;
+  padding: 5px 7px;
+  background: #000;
+  border: 1px solid var(--border);
+  color: var(--amber);
+  font-family: inherit;
+  font-size: 12px;
+  border-radius: 0;
 }
-input[type=text]:focus, input[type=number]:focus, select:focus, input[type=date]:focus { outline: 1px solid var(--accent); }
+input:focus, select:focus, textarea:focus {
+  outline: none;
+  border-color: var(--amber);
+  background: var(--bg-panel-2);
+}
+input::placeholder { color: var(--fg-muted); }
 
-.row { display: flex; gap: 0.75rem; }
+select {
+  appearance: none;
+  background-image: linear-gradient(45deg, transparent 50%, var(--amber) 50%),
+                    linear-gradient(135deg, var(--amber) 50%, transparent 50%);
+  background-position: calc(100% - 14px) 50%, calc(100% - 9px) 50%;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+  padding-right: 24px;
+}
+
+.row { display: flex; gap: 8px; }
 .row > div { flex: 1; }
 
-.checkboxes { display: flex; gap: 0.75rem; flex-wrap: wrap; margin-top: 0.25rem; }
-.check { display: flex; align-items: center; gap: 0.3rem; cursor: pointer; font-size: 0.9rem; color: var(--fg); }
-.check input { width: auto; }
+.checkboxes { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 4px; }
+.check {
+  display: flex; align-items: center; gap: 5px;
+  cursor: pointer; font-size: 11px; color: var(--fg);
+  text-transform: uppercase; letter-spacing: 0.08em;
+}
+.check input { width: auto; accent-color: var(--amber); }
 
+/* Buttons: hard-edged terminal style */
+button.primary, button {
+  background: #000;
+  color: var(--amber);
+  border: 1px solid var(--amber);
+  padding: 6px 14px;
+  border-radius: 0;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  transition: none;
+}
+button:hover {
+  background: var(--amber);
+  color: #000;
+}
 button.primary {
-  background: var(--accent); color: var(--accent-fg); border: none;
-  padding: 0.6rem 1.1rem; border-radius: 6px; cursor: pointer; margin-top: 1rem;
-  font-size: 0.95rem; font-weight: 500;
+  margin-top: 12px;
+  background: var(--amber);
+  color: #000;
+  width: 100%;
+  padding: 8px;
 }
 button.primary:hover { filter: brightness(1.1); }
-button.primary:disabled { opacity: 0.5; cursor: not-allowed; }
-button { background: var(--border); color: var(--fg); border: none; padding: 0.4rem 0.7rem; border-radius: 4px; cursor: pointer; font-size: 0.85rem; }
-button:hover { filter: brightness(1.1); }
-
-details { margin-top: 1rem; }
-details summary { cursor: pointer; color: var(--muted); }
-.error { color: var(--red); margin-top: 0.5rem; min-height: 1.2rem; }
-
-.log {
-  max-height: 360px; overflow: auto; background: #0a0c10;
-  padding: 0.75rem; border-radius: 6px; border: 1px solid var(--border);
-  font-family: "JetBrains Mono", Menlo, Consolas, monospace;
-  font-size: 0.82rem; line-height: 1.4; white-space: pre-wrap; word-break: break-word;
+button.primary:disabled, button:disabled {
+  opacity: 0.4; cursor: not-allowed;
+  background: var(--bg-panel-2); color: var(--fg-muted); border-color: var(--border);
 }
 
-.badge { display: inline-block; padding: 0.15rem 0.6rem; border-radius: 999px;
-         font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; margin-left: 0.5rem; }
-.status-idle, .status-pending { background: var(--muted); color: #000; }
-.status-running { background: var(--yellow); color: #000; }
-.status-completed { background: var(--green); color: #000; }
-.status-failed { background: var(--red); color: #fff; }
-.status-cancelled { background: #555; color: #fff; }
+details {
+  margin-top: 10px;
+  border-top: 1px dashed var(--border);
+  padding-top: 8px;
+}
+details summary {
+  cursor: pointer; color: var(--amber-dim);
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.12em;
+  user-select: none;
+}
+details summary:hover { color: var(--amber); }
 
-table { width: 100%; border-collapse: collapse; margin-top: 0.5rem; }
-th, td { padding: 0.5rem 0.7rem; text-align: left; border-bottom: 1px solid var(--border); font-size: 0.88rem; }
-th { color: var(--muted); font-weight: 500; font-size: 0.78rem; text-transform: uppercase; }
+.error {
+  color: var(--red); margin-top: 6px; min-height: 14px;
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em;
+}
 
-.history td { vertical-align: top; }
-.decision { background: #0a0c10; padding: 0.75rem; border-radius: 6px;
-            border: 1px solid var(--border); margin-bottom: 0.75rem; }
-.decision pre { white-space: pre-wrap; word-break: break-word; font-size: 0.85rem; margin: 0; max-height: 240px; overflow: auto; }
-.chart { margin-top: 1rem; min-height: 0; }
-.picks { margin-top: 1rem; }
+/* ──────────────────────── LIVE LOG ──────────────────────── */
+.log {
+  max-height: 380px; overflow: auto;
+  background: #000;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--green-dim);
+  font-family: inherit;
+  font-size: 11px;
+  line-height: 1.45;
+  white-space: pre-wrap; word-break: break-word;
+  color: var(--green-dim);
+}
+.log::-webkit-scrollbar { width: 8px; }
+.log::-webkit-scrollbar-track { background: #000; }
+.log::-webkit-scrollbar-thumb { background: var(--amber-dim); }
+
+/* ──────────────────────── BADGES / STATUS ──────────────────────── */
+.badge {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 0;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-weight: 700;
+  margin-left: 8px;
+  border: 1px solid currentColor;
+}
+.status-idle, .status-pending {
+  color: var(--fg-muted); border-color: var(--fg-muted);
+}
+.status-running {
+  color: var(--yellow); border-color: var(--yellow);
+  animation: blink 1.2s steps(2, start) infinite;
+}
+@keyframes blink {
+  to { visibility: hidden; }
+}
+.status-running { animation: pulse 1.4s ease-in-out infinite; }
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+.status-completed { color: var(--green); border-color: var(--green); }
+.status-failed { color: var(--red); border-color: var(--red); background: rgba(255,59,59,0.1); }
+.status-cancelled { color: var(--fg-muted); border-color: var(--fg-muted); }
+
+/* ──────────────────────── TABLES ──────────────────────── */
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 4px;
+  font-size: 11px;
+}
+thead { background: var(--bg-panel-2); }
+th, td {
+  padding: 4px 8px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+th {
+  color: var(--amber);
+  font-weight: 700;
+  text-transform: uppercase;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  border-bottom: 1px solid var(--amber-dim);
+}
+tbody tr:nth-child(even) { background: var(--bg-row-alt); }
+tbody tr:hover { background: rgba(255,165,0,0.05); }
+
+td strong { color: var(--amber); font-weight: 700; }
+.symbol-cell { color: var(--amber); font-weight: 700; letter-spacing: 0.04em; }
+
+/* Conviction colors (uppercase HIGH/MEDIUM/LOW in tables) */
+td:nth-of-type(3) { font-weight: 700; }
+tbody tr td:nth-of-type(3):where(*) {
+  /* Default; specifics overridden via classes if you add them */
+  color: var(--amber-bright);
+}
+
+/* ──────────────────────── DECISIONS ──────────────────────── */
+.decision {
+  background: var(--bg-row);
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--amber);
+  margin-bottom: 8px;
+}
+.decision h4 {
+  margin: 0 0 6px;
+  color: var(--amber);
+  font-size: 12px;
+  letter-spacing: 0.1em;
+}
+.decision pre {
+  white-space: pre-wrap; word-break: break-word;
+  font-size: 11px;
+  font-family: inherit;
+  margin: 0 0 8px;
+  max-height: 240px;
+  overflow: auto;
+  color: var(--fg);
+  background: transparent;
+}
+.decision button { margin-top: 4px; }
+
+.chart {
+  margin-top: 12px;
+  background: #000;
+  border: 1px solid var(--border);
+  padding: 4px;
+}
+
+.picks { margin-top: 12px; }
+
+/* ──────────────────────── SCANNER PAGE ──────────────────────── */
+section .row label {
+  display: flex; align-items: center; gap: 8px; margin: 0;
+  text-transform: uppercase; font-size: 11px; color: var(--fg);
+}
+section .row label input { width: 70px; }
+
+/* ──────────────────────── MARKET TICKER (decorative) ──────────────────────── */
+.market-ticker {
+  display: flex;
+  gap: 24px;
+  padding: 4px 12px;
+  background: var(--bg-panel-2);
+  border-bottom: 1px solid var(--border);
+  font-size: 10px;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.market-ticker span { color: var(--fg-muted); }
+.market-ticker .up { color: var(--green); }
+.market-ticker .down { color: var(--red); }
+
+/* ──────────────────────── FOOTER STATUS BAR ──────────────────────── */
+footer.status-bar {
+  position: fixed; bottom: 0; left: 0; right: 0;
+  background: var(--bg-panel);
+  border-top: 1px solid var(--amber);
+  padding: 4px 12px;
+  font-size: 10px;
+  color: var(--fg-muted);
+  display: flex;
+  gap: 24px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+footer.status-bar .ok { color: var(--green); }
+footer.status-bar .clock { margin-left: auto; color: var(--amber); }
+main { padding-bottom: 36px; }
+
+/* ──────────────────────── PLOTLY DARK OVERRIDES ──────────────────────── */
+.js-plotly-plot .plotly .modebar { background: transparent !important; }
+.js-plotly-plot .plotly .main-svg { background: #000 !important; }
