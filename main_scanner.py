@@ -7,6 +7,7 @@ Usage:
     python main_scanner.py
     python main_scanner.py --max-picks 5
     python main_scanner.py --date 2025-05-01
+    python main_scanner.py --scan-only
 """
 
 import os
@@ -69,32 +70,77 @@ results_dir = config.get("results_dir", os.path.expanduser("~/.tradingagents/log
 os.makedirs(results_dir, exist_ok=True)
 
 # ── Run Scanner ──
-print(f"{'='*60}")
-print(f"Market Scanner")
-print(f"Provider: {config['llm_provider']}")
-print(f"Model: {config['deep_think_llm']}")
-print(f"Date: {analysis_date}")
-print(f"Mode: {'scan-only' if scan_only else 'full pipeline'}")
-print(f"Max picks: {max_picks}")
+print(f"\n{'='*60}")
+print(f"  MARKET SCANNER — Multi-Signal Analysis")
+print(f"  Provider: {config['llm_provider']}")
+print(f"  Scanner LLM: {os.getenv('SCANNER_LLM', config['deep_think_llm'])}")
+print(f"  Date: {analysis_date}")
+print(f"  Mode: {'scan-only' if scan_only else 'full pipeline'}")
+print(f"  Max picks: {max_picks}")
 print(f"{'='*60}\n")
 
 scanner = MarketScanner(
     provider=config["llm_provider"],
-    model=config["deep_think_llm"],
+    model=os.getenv("SCANNER_LLM", config["deep_think_llm"]),
 )
 
 scan_result = scanner.scan()
-symbols = scan_result["symbols"][:max_picks]
+detailed = scan_result.get("detailed", {})
+picks = detailed.get("picks", [])
+symbols = [p["symbol"] for p in picks][:max_picks]
 
-print(f"\nScanner identified {len(symbols)} stocks: {', '.join(symbols)}")
-print(f"Reasoning: {scan_result['reasoning']}\n")
+# ── Display Detailed Results ──
+print(f"\n{'='*60}")
+print(f"  SCAN RESULTS")
+print(f"{'='*60}")
+
+if detailed.get("market_regime"):
+    print(f"\n  Market Regime: {detailed['market_regime']}")
+if detailed.get("themes"):
+    print(f"  Themes: {', '.join(detailed['themes'])}")
+
+print(f"\n  Screened: {detailed.get('all_scored', '?')} stocks")
+print(f"  Final picks: {len(symbols)}\n")
+
+for i, pick in enumerate(picks[:max_picks], 1):
+    conviction = pick.get("conviction", "?").upper()
+    marker = {"HIGH": "***", "MEDIUM": "** ", "LOW": "*  "}.get(conviction, "   ")
+    print(f"  {i:2d}. {marker} {pick['symbol']:<6s} [{conviction}]")
+    print(f"      {pick.get('reasoning', 'No reasoning')}")
+
+    # Show quant details if available in candidates
+    cand = next((c for c in detailed.get("candidates", []) if c["symbol"] == pick["symbol"]), None)
+    if cand:
+        extras = []
+        if cand.get("rs_1m"):
+            extras.append(f"RS1m={cand['rs_1m']:+.1f}%")
+        if cand.get("vol_ratio"):
+            extras.append(f"Vol={cand['vol_ratio']:.1f}x")
+        if cand.get("rsi"):
+            extras.append(f"RSI={cand['rsi']:.0f}")
+        if cand.get("at_20d_high"):
+            extras.append("20dHigh")
+        if cand.get("events"):
+            extras.append(f"Events: {', '.join(cand['events'])}")
+        if cand.get("smart_money_signals"):
+            extras.append(f"Smart$: {', '.join(cand['smart_money_signals'])}")
+        if extras:
+            print(f"      [{' | '.join(extras)}]")
+    print()
+
+print(f"{'='*60}\n")
 
 output = {
     "scan": {
         "symbols": symbols,
-        "reasoning": scan_result["reasoning"],
-        "market_data": scan_result["market_data"],
-        "timestamp": scan_result["timestamp"],
+        "picks": picks[:max_picks],
+        "market_regime": detailed.get("market_regime", ""),
+        "themes": detailed.get("themes", []),
+        "candidates": detailed.get("candidates", []),
+        "all_scored": detailed.get("all_scored"),
+        "reasoning": scan_result.get("reasoning", ""),
+        "market_data": scan_result.get("market_data", {}),
+        "timestamp": scan_result.get("timestamp"),
     },
     "analysis": {},
 }
