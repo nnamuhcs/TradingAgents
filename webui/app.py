@@ -55,23 +55,61 @@ app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 async def _startup() -> None:
     await init_db()
     logger.info("DB initialized")
-    # Kick off Yahoo Live WebSocket with the default anchor set; the SSE
-    # stream will dynamically extend the subscription with whatever ends
-    # up in the marquee feed.
+
+    # 1. Clean up zombie runs from a previous pod that didn't shut down cleanly
+    await _reap_stale_runs(max_age_minutes=30)
+    # 2. Schedule periodic reaping while we run
+    import asyncio
+    asyncio.create_task(_zombie_reaper_loop())
+
+    # 3. Yahoo Live WebSocket + warm movers cache
     try:
         from webui.movers import ANCHORS, get_movers
         from webui.yahoo_live import ticker
         await ticker.start([s for s in ANCHORS if s])
         logger.info("Yahoo Live WebSocket started")
-        # Warm the movers cache so the first SSE yield doesn't block 30s on
-        # yfinance screening of the S&P 500 universe.
-        import asyncio
         asyncio.create_task(asyncio.get_event_loop().run_in_executor(
             None, lambda: get_movers(n_gainers=8, n_losers=8)
         ))
         logger.info("Movers cache warm-up scheduled")
     except Exception as e:  # pragma: no cover
         logger.warning("Yahoo Live WS / movers warm-up not started: %s", e)
+
+
+async def _reap_stale_runs(max_age_minutes: int = 30) -> None:
+    """Mark any 'running' runs older than `max_age_minutes` as 'failed'.
+
+    These are runs whose worker died (pod restart, OOM, timeout) and never
+    got to emit a final status. Without this, they show "Running" forever
+    in the History page.
+    """
+    from datetime import timedelta
+    from sqlalchemy import update
+    from webui.db import Run, get_sessionmaker
+
+    cutoff = datetime.utcnow() - timedelta(minutes=max_age_minutes)
+    sm = get_sessionmaker()
+    try:
+        async with sm() as session:
+            result = await session.execute(
+                update(Run)
+                .where(Run.status.in_(["running", "pending"]))
+                .where(Run.created_at < cutoff)
+                .values(status="failed", error="Worker died (pod restart or timeout)",
+                        finished_at=datetime.utcnow())
+            )
+            await session.commit()
+            if result.rowcount:
+                logger.info("Reaped %d stale runs", result.rowcount)
+    except Exception as e:  # pragma: no cover
+        logger.warning("zombie reaper failed: %s", e)
+
+
+async def _zombie_reaper_loop() -> None:
+    import asyncio
+    while True:
+        await asyncio.sleep(300)  # every 5 minutes
+        await _reap_stale_runs(max_age_minutes=30)
 
 
 @app.get("/")
@@ -144,6 +182,8 @@ async def start_run(req: StartRunRequest) -> dict[str, str]:
 
 @app.get("/api/runs")
 async def list_runs(limit: int = 50) -> list[dict[str, Any]]:
+    # Reap stale runs before listing so the History page is honest
+    await _reap_stale_runs(max_age_minutes=30)
     sm = get_sessionmaker()
     async with sm() as session:
         rows = (
@@ -152,6 +192,26 @@ async def list_runs(limit: int = 50) -> list[dict[str, Any]]:
             )
         ).scalars().all()
     return [_run_to_dict(r) for r in rows]
+
+
+@app.post("/api/runs/{run_id}/cancel")
+async def cancel_run(run_id: str) -> dict[str, Any]:
+    """Mark a run as cancelled. Doesn't actually interrupt the executor task,
+    but stops the user seeing it as 'running' forever."""
+    sm = get_sessionmaker()
+    async with sm() as session:
+        run = (await session.execute(select(Run).where(Run.id == run_id))).scalar_one_or_none()
+        if run is None:
+            raise HTTPException(404, "run not found")
+        if run.status in ("completed", "failed", "cancelled"):
+            return _run_to_dict(run)
+        run.status = "cancelled"
+        run.finished_at = datetime.utcnow()
+        run.error = (run.error or "") + " (user cancelled)"
+        await session.commit()
+    bus.publish(run_id, "error", {"message": "Run cancelled by user"})
+    bus.close(run_id)
+    return _run_to_dict(run)
 
 
 @app.get("/api/runs/{run_id}")

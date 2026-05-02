@@ -77,7 +77,13 @@ def _scanner_resolve(run_id: str, snap: dict[str, Any]) -> tuple[list[str], dict
 
 
 def _propagate(run_id: str, symbol: str, snap: dict[str, Any]) -> str:
-    """Pure sync function — invoked inside a thread executor. No DB access."""
+    """Pure sync function — invoked inside a thread executor. No DB access.
+
+    Streams the LangGraph chunks and emits TUI-identical agent_status /
+    message / tool_call / report_section events via the EventBus.
+    """
+    from webui.graph_stream import GraphStreamer
+
     config = _build_config(snap)
     bus.publish(run_id, "log", {"line": f"[{symbol}] Building TradingAgentsGraph"})
 
@@ -87,8 +93,24 @@ def _propagate(run_id: str, symbol: str, snap: dict[str, Any]) -> str:
         debug=False,
         config=config,
     )
-    bus.publish(run_id, "log", {"line": f"[{symbol}] Propagating analysis for {snap['analysis_date']}"})
-    _, decision = ta.propagate(symbol, snap["analysis_date"])
+    bus.publish(run_id, "log", {"line": f"[{symbol}] Streaming analysis for {snap['analysis_date']}"})
+
+    streamer = GraphStreamer(
+        publish=lambda event, data: bus.publish(run_id, event, {"symbol": symbol, **data}),
+        selected_analysts=selected_analysts,
+    )
+    streamer.emit_initial(symbol, snap["analysis_date"])
+
+    init_state = ta.propagator.create_initial_state(symbol, snap["analysis_date"])
+    args = ta.propagator.get_graph_args()
+
+    final_state: dict[str, Any] = {}
+    for chunk in ta.graph.stream(init_state, **args):
+        streamer.emit_chunk(chunk)
+        final_state = chunk
+
+    streamer.emit_done()
+    decision = ta.process_signal(final_state.get("final_trade_decision", "")) if final_state else ""
     return str(decision)
 
 
