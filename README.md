@@ -38,6 +38,7 @@ Best for: scheduled runs, multi-symbol portfolios, CI/CD, headless servers.
 - Reads everything from environment variables (ConfigMap + Secret in K8s)
 - Writes a JSON file per run with the decision and timestamp
 - Runs as a one-shot K8s `Job` or a daily `CronJob` (`9:30 AM ET, Mon–Fri`)
+- Includes a **Market Scanner** entry point (`main_scanner.py`) that automatically picks stocks to analyze (see below)
 
 ---
 
@@ -71,6 +72,39 @@ tradingagents
 python main_copilot.py NVDA 2025-05-01
 # multi-symbol:
 python main_copilot.py AAPL,MSFT,GOOG 2025-05-01
+```
+
+### Market Scanner (AI Stock Discovery)
+
+The scanner automatically finds the best stocks to analyze using a 4-layer AI pipeline:
+
+1. **Quant Screening** — Scores all S&P 500 stocks on relative strength, volume breakouts, price breakouts, and momentum (RSI/MACD). Narrows ~500 to top 30.
+2. **Event-Driven** — Boosts stocks with upcoming earnings, analyst upgrades, and news catalysts.
+3. **Smart Money** — Checks insider buying/selling and institutional holder activity.
+4. **LLM Synthesis** — Claude analyzes all 30 candidates with full signal data, picks 5–10 with conviction levels (high/medium/low) and per-stock reasoning.
+
+```bash
+# Full pipeline: scan -> pick stocks -> run full analysis on each
+python main_scanner.py
+
+# Scan only (just get stock picks, no deep analysis)
+python main_scanner.py --scan-only
+
+# Limit how many picks get full analysis
+python main_scanner.py --max-picks 3
+
+# Via env vars (for K8s)
+SCANNER_MODE=scan-only python main_scanner.py
+SCANNER_MAX_PICKS=5 python main_scanner.py
+```
+
+Example output:
+
+```
+1. *** AVGO   [HIGH]   - AI/semis leader, +34% 1m, RSI 70, institutions accumulating
+2. *** GOOGL  [HIGH]   - Mega-cap breakout, AI/Gemini momentum, +20% 1m
+3. **  AMD    [MEDIUM] - Earnings catalyst, +66% 1m, AI accelerator demand
+...
 ```
 
 ---
@@ -216,6 +250,14 @@ All config is via environment variables — set them in the ConfigMap (`kubectl 
 | `MAX_DEBATE_ROUNDS` | `1` | Bull/Bear debate rounds |
 | `MAX_RISK_DISCUSS_ROUNDS` | `1` | Risk debate rounds |
 | `OUTPUT_LANGUAGE` | `English` | Output language |
+
+### Market Scanner (`main_scanner.py`)
+
+| Variable | Default | Description |
+|---|---|---|
+| `SCANNER_MODE` | `full` | `full` (scan + analyze) or `scan-only` |
+| `SCANNER_MAX_PICKS` | `10` | Max stocks to run full analysis on |
+| `SCANNER_LLM` | `claude-opus-4.7` | Model for scanner LLM synthesis |
 
 ### TUI only (skip-vars; see TUI section above)
 

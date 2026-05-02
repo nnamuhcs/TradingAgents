@@ -19,3 +19,7 @@ data:
   MAX_RISK_DISCUSS_ROUNDS: "1"
   # Output language
   OUTPUT_LANGUAGE: "English"
+  # Scanner mode: "full" (scan + pipeline) or "scan-only" (scan only)
+  SCANNER_MODE: "full"
+  # Max stocks for scanner to analyze through pipeline
+  SCANNER_MAX_PICKS: "10"
