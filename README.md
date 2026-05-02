@@ -1,6 +1,6 @@
 # TradingAgents on K8s
 
-Multi-agent LLM trading framework with a live terminal dashboard, deployable on Kubernetes. Forked from [TauricResearch/TradingAgents](https://github.com/tauricresearch/tradingagents) with added **GitHub Copilot provider support**, **K8s manifests** for both interactive and batch use, and **env-driven config** that lets the interactive TUI skip prompts you've already answered in the ConfigMap.
+Multi-agent LLM trading framework with **three** ways to run: a live terminal dashboard (TUI), a non-interactive batch script, and a **k8s-native WebUI** with charts and run history. Forked from [TauricResearch/TradingAgents](https://github.com/tauricresearch/tradingagents) with added **GitHub Copilot provider support**, **K8s manifests**, **Market Scanner** integration, and env-driven config.
 
 ## What It Does
 
@@ -19,26 +19,36 @@ All agents powered by LLMs (Claude Opus 4.7, GPT-5.4, Gemini, Grok, etc.) via yo
 
 ---
 
-## Two ways to run
+## Three ways to run
 
-There are two complementary ways to use this framework. Pick whichever fits your workflow — the K8s manifests support both side-by-side.
+There are three complementary ways to use this framework. The K8s manifests support all three side-by-side in the same namespace.
+
+### 🌐 WebUI (browser, k8s-native) — recommended for daily use
+
+Best for: any browser-equipped device, multi-user, run history, charts.
+
+- Single-page web app (FastAPI + SSE + Plotly), Postgres-backed run history
+- Form-driven: pick ticker(s) **or** ask the Market Scanner to pick the top 5/10/20
+- Live event stream (Server-Sent Events) shows agents working in real time
+- 4-pane Plotly chart per result (candlestick + volume + RSI + MACD)
+- Multi-symbol queue: enter `NVDA, AAPL, MSFT` to analyze them sequentially
 
 ### 🎛️ Interactive TUI (live Rich dashboard)
 
-Best for: exploring, demos, picking models on the fly, watching agents work in real time.
+Best for: terminal lovers, demos in screen-share, full live-updating Rich layout.
 
 - Walks you through ticker, date, language, analysts, depth, and effort with arrow-key prompts
-- Renders a **live Rich dashboard** — analyst statuses, message stream, tool calls, current report — that updates as the graph executes
-- Output is human-readable; you stay in the loop until the final decision is printed
+- Renders a **live Rich dashboard** — analyst statuses, message stream, tool calls, current report
+- Step 1 also offers the **Market Scanner branch** (top 5/10/20 + Pick ONE / Run ALL / Pick MULTIPLE)
 
-### ⚙️ Non-interactive (script / batch)
+### ⚙️ Non-interactive (script / CronJob)
 
-Best for: scheduled runs, multi-symbol portfolios, CI/CD, headless servers.
+Best for: scheduled batch runs, CI/CD, headless servers.
 
-- Reads everything from environment variables (ConfigMap + Secret in K8s)
+- Reads everything from environment variables (ConfigMap + Secret)
 - Writes a JSON file per run with the decision and timestamp
 - Runs as a one-shot K8s `Job` or a daily `CronJob` (`9:30 AM ET, Mon–Fri`)
-- Includes a **Market Scanner** entry point (`main_scanner.py`) that automatically picks stocks to analyze (see below)
+- Includes a separate **Market Scanner** entry point (`main_scanner.py`) for batch scanning
 
 ---
 
@@ -115,25 +125,74 @@ Example output:
 
 - A K8s cluster (Kind, Minikube, **k3s/k3d**, EKS, GKE, AKS — Docker Desktop K8s also works)
 - `kubectl` configured
-- Docker (for building the image)
+- Docker (for building the images)
 
-### One-Command Deploy
+### One-Command Deploy (TUI + batch only)
 
 ```bash
 ./k8s/deploy.sh --build --token "$(gh auth token)"
 ```
 
-This builds the image, creates the namespace, secret, configmap, PVC, CronJob, **and a long-lived `ta-shell` pod** for running the interactive TUI inside the cluster.
+This builds the worker image, creates the namespace, secret, configmap, PVC, CronJob, **and a long-lived `ta-shell` pod** for running the interactive TUI inside the cluster.
+
+### Add the WebUI
+
+```bash
+# Build the WebUI image
+docker build -f Dockerfile.webui -t tradingagents-webui:latest .
+
+# Distribute it like the worker image (see table below)
+
+# Apply Postgres + WebUI
+kubectl apply -f k8s/postgres.yaml
+kubectl apply -f k8s/webui-deployment.yaml
+# Optional: expose via Ingress (edit host first)
+# kubectl apply -f k8s/webui-ingress.yaml
+
+# Open it
+kubectl -n tradingagents port-forward svc/tradingagents-webui 8000:80
+# -> browse to http://localhost:8000
+```
 
 ### Image distribution by cluster type
 
-| Cluster | After `docker build -t tradingagents:latest .` |
+| Cluster | After `docker build -t IMAGE:latest .` |
 |---|---|
 | **Docker Desktop K8s** | Nothing — image is auto-visible to the cluster |
-| **Kind** | `kind load docker-image tradingagents:latest --name <cluster>` |
-| **Minikube** | `minikube image load tradingagents:latest` |
-| **k3s / k3d** | `docker save tradingagents:latest -o /tmp/ta.tar && sudo k3s ctr images import /tmp/ta.tar` (or push to a local registry, see [k3s docs](https://docs.k3s.io/installation/private-registry)) |
+| **Kind** | `kind load docker-image IMAGE:latest --name <cluster>` |
+| **Minikube** | `minikube image load IMAGE:latest` |
+| **k3s / k3d** | `docker save IMAGE:latest -o /tmp/img.tar && sudo k3s ctr images import /tmp/img.tar` |
 | **Cloud (EKS/GKE/AKS)** | `docker tag` + `docker push` to your registry, then update `image:` in the manifests |
+
+---
+
+## ▶ Running on K8s — WebUI mode (browser)
+
+```bash
+kubectl -n tradingagents port-forward svc/tradingagents-webui 8000:80
+```
+
+Then open **http://localhost:8000** in any browser:
+
+- **New Run** tab — pick ticker source, date, analysts, depth, then click *Start analysis*. The live log streams as the agents execute. When done, click *Show chart* on any decision to see the 4-pane Plotly chart.
+- **History** tab — every past run with its decisions; click *View* to reopen.
+- **Scanner** tab — run the Market Scanner standalone with N=1..20 picks.
+
+API endpoints (also useful for scripting):
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/api/runs` | Start a run; body has `ticker_source` / `symbols` / `analysis_date` / `analysts` / etc. |
+| `GET` | `/api/runs/{id}` | Run metadata + decisions |
+| `GET` | `/api/runs/{id}/events` | **SSE** live event stream while running |
+| `GET` | `/api/runs?limit=N` | List past runs (newest first) |
+| `GET` | `/api/scan?n=10` | Run the Market Scanner, return picks |
+| `GET` | `/api/chart/{symbol}?period=6mo` | OHLCV + RSI + MACD JSON for Plotly |
+| `GET` | `/healthz` | Liveness probe |
+
+### Why a separate WebUI image?
+
+The WebUI needs `fastapi`, `uvicorn`, `sqlalchemy`, `asyncpg` which aren't required for the TUI / batch worker. The `[webui]` extra in `pyproject.toml` keeps these out of the lean worker image; the WebUI uses `Dockerfile.webui` which `pip install '.[webui]'`s them.
 
 ---
 
@@ -270,23 +329,29 @@ All config is via environment variables — set them in the ConfigMap (`kubectl 
 
 ```
 k8s/
-  namespace.yaml      # tradingagents namespace
-  secret.yaml         # API tokens (GITHUB_TOKEN)
-  configmap.yaml      # LLM provider, models, symbols config
-  pvc.yaml            # 5Gi persistent storage for logs/cache/memory
-  pod-shell.yaml      # Long-lived pod for interactive TUI (kubectl exec)
-  job-manual.yaml     # On-demand non-interactive run
-  cronjob.yaml        # Scheduled non-interactive run (Mon–Fri 9:30 AM ET)
-  deploy.sh           # One-command deploy script
+  namespace.yaml              # tradingagents namespace
+  secret.yaml                 # Worker API tokens (GITHUB_TOKEN)
+  configmap.yaml              # LLM provider, models, symbols config
+  pvc.yaml                    # 5Gi persistent storage for logs/cache/memory
+  pod-shell.yaml              # Long-lived pod for interactive TUI (kubectl exec)
+  job-manual.yaml             # On-demand non-interactive run
+  cronjob.yaml                # Scheduled non-interactive run (Mon–Fri 9:30 AM ET)
+  postgres.yaml               # Postgres 16 StatefulSet + Service (WebUI history)
+  webui-deployment.yaml       # WebUI Deployment + Service + DSN secret
+  webui-ingress.yaml          # Optional Ingress for browser access
+  deploy.sh                   # One-command deploy script (worker side)
 ```
 
-After `deploy.sh`:
+After applying everything:
 
 ```
-NAME                       READY   STATUS    PURPOSE
-ta-shell                   1/1     Running   ← interactive TUI host (long-lived)
-cronjob/tradingagents-daily            ← scheduled batch run
-pvc/tradingagents-data (5Gi)           ← shared results storage
+NAME                                   READY   STATUS    PURPOSE
+ta-shell                               1/1     Running   ← interactive TUI host (long-lived)
+postgres-0                             1/1     Running   ← run history for WebUI
+tradingagents-webui-xxxx               1/1     Running   ← FastAPI WebUI
+cronjob/tradingagents-daily                              ← scheduled batch run
+pvc/tradingagents-data (5Gi)                             ← shared results storage
+pvc/data-postgres-0 (5Gi)                                ← run history storage
 ```
 
 ---
@@ -357,6 +422,19 @@ This fork adds the following on top of the original TradingAgents framework:
   - **`pod-shell.yaml` — long-lived pod for the interactive TUI (`kubectl exec -it ta-shell -- tradingagents`), with `TERM=xterm-256color`, `FORCE_COLOR=1`, and the PVC mounted**
   - `cronjob.yaml` — automated daily runs at market open (9:30 AM ET, Mon–Fri)
   - `job-manual.yaml` — on-demand non-interactive analysis
+  - **`postgres.yaml` — Postgres 16 StatefulSet + Service for WebUI run history**
+  - **`webui-deployment.yaml` — FastAPI WebUI Deployment + Service**
+  - **`webui-ingress.yaml` — optional Ingress for browser access**
   - `deploy.sh` — one-command deploy with `--build` and `--token` flags
 - Works on any K8s cluster (Kind, Minikube, k3s/k3d, Docker Desktop, EKS, GKE, AKS)
 - Tested end-to-end on local k3s with Claude Opus 4.7
+
+### WebUI (Phase A)
+- New `webui/` package + `Dockerfile.webui`:
+  - FastAPI app with form-driven UI, multi-ticker queue, Market Scanner integration
+  - Live agent output via Server-Sent Events (SSE)
+  - 4-pane Plotly chart per result (candlestick + volume + RSI + MACD)
+  - Postgres-backed run history (`/api/runs`)
+  - REST endpoints: `POST /api/runs`, `GET /api/runs/{id}`, `GET /api/runs/{id}/events` (SSE), `GET /api/scan`, `GET /api/chart/{symbol}`
+  - Single-page UI uses Alpine.js + Plotly.js via CDN — no JS build step
+- `[webui]` optional dependency group in `pyproject.toml` keeps the worker image lean

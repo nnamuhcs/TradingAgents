@@ -1,0 +1,26 @@
+# Optional Ingress so the WebUI is reachable on a hostname.
+# Requires an Ingress controller (e.g. ingress-nginx, Traefik on k3s).
+# Comment / customize as needed.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: tradingagents-webui
+  namespace: tradingagents
+  labels:
+    app.kubernetes.io/name: tradingagents
+    app.kubernetes.io/component: webui
+  annotations:
+    # nginx.ingress.kubernetes.io/proxy-buffering: "off"  # required for SSE on nginx
+    # nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+spec:
+  rules:
+    - host: tradingagents.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: tradingagents-webui
+                port:
+                  number: 80

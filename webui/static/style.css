@@ -1,0 +1,98 @@
+:root {
+  --bg: #0f1115;
+  --panel: #1a1d24;
+  --border: #2a2e38;
+  --fg: #e6e8eb;
+  --muted: #8a93a3;
+  --accent: #4f9eed;
+  --accent-fg: #fff;
+  --green: #41b883;
+  --yellow: #f0b400;
+  --red: #ef4444;
+  --ok: #41b883;
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background: var(--bg); color: var(--fg);
+}
+header {
+  display: flex; align-items: center; gap: 1.5rem;
+  padding: 1rem 2rem; border-bottom: 1px solid var(--border); background: var(--panel);
+}
+header h1 { margin: 0; font-size: 1.25rem; }
+nav { display: flex; gap: 0.5rem; }
+nav button {
+  background: transparent; border: 1px solid transparent; color: var(--muted);
+  padding: 0.4rem 0.9rem; border-radius: 6px; cursor: pointer; font-size: 0.9rem;
+}
+nav button:hover { background: var(--border); color: var(--fg); }
+nav button.active { background: var(--accent); color: var(--accent-fg); }
+main { padding: 1.5rem 2rem; max-width: 1400px; margin: 0 auto; }
+h2 { margin-top: 0; font-size: 1.1rem; }
+h3 { font-size: 1rem; margin: 1rem 0 0.5rem; }
+h4 { margin: 0.5rem 0 0.25rem; color: var(--accent); }
+
+.grid { display: grid; grid-template-columns: 380px 1fr; gap: 1.5rem; }
+@media (max-width: 1100px) { .grid { grid-template-columns: 1fr; } }
+
+.form-card, .output-card {
+  background: var(--panel); border: 1px solid var(--border);
+  border-radius: 8px; padding: 1.25rem;
+}
+
+label { display: block; margin: 0.75rem 0 0.25rem; font-size: 0.85rem; color: var(--muted); }
+input[type=text], input[type=date], input[type=number], select, textarea {
+  width: 100%; padding: 0.5rem 0.6rem; background: #0f1115;
+  border: 1px solid var(--border); color: var(--fg); border-radius: 6px;
+  font-family: inherit; font-size: 0.9rem;
+}
+input[type=text]:focus, input[type=number]:focus, select:focus, input[type=date]:focus { outline: 1px solid var(--accent); }
+
+.row { display: flex; gap: 0.75rem; }
+.row > div { flex: 1; }
+
+.checkboxes { display: flex; gap: 0.75rem; flex-wrap: wrap; margin-top: 0.25rem; }
+.check { display: flex; align-items: center; gap: 0.3rem; cursor: pointer; font-size: 0.9rem; color: var(--fg); }
+.check input { width: auto; }
+
+button.primary {
+  background: var(--accent); color: var(--accent-fg); border: none;
+  padding: 0.6rem 1.1rem; border-radius: 6px; cursor: pointer; margin-top: 1rem;
+  font-size: 0.95rem; font-weight: 500;
+}
+button.primary:hover { filter: brightness(1.1); }
+button.primary:disabled { opacity: 0.5; cursor: not-allowed; }
+button { background: var(--border); color: var(--fg); border: none; padding: 0.4rem 0.7rem; border-radius: 4px; cursor: pointer; font-size: 0.85rem; }
+button:hover { filter: brightness(1.1); }
+
+details { margin-top: 1rem; }
+details summary { cursor: pointer; color: var(--muted); }
+.error { color: var(--red); margin-top: 0.5rem; min-height: 1.2rem; }
+
+.log {
+  max-height: 360px; overflow: auto; background: #0a0c10;
+  padding: 0.75rem; border-radius: 6px; border: 1px solid var(--border);
+  font-family: "JetBrains Mono", Menlo, Consolas, monospace;
+  font-size: 0.82rem; line-height: 1.4; white-space: pre-wrap; word-break: break-word;
+}
+
+.badge { display: inline-block; padding: 0.15rem 0.6rem; border-radius: 999px;
+         font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; margin-left: 0.5rem; }
+.status-idle, .status-pending { background: var(--muted); color: #000; }
+.status-running { background: var(--yellow); color: #000; }
+.status-completed { background: var(--green); color: #000; }
+.status-failed { background: var(--red); color: #fff; }
+.status-cancelled { background: #555; color: #fff; }
+
+table { width: 100%; border-collapse: collapse; margin-top: 0.5rem; }
+th, td { padding: 0.5rem 0.7rem; text-align: left; border-bottom: 1px solid var(--border); font-size: 0.88rem; }
+th { color: var(--muted); font-weight: 500; font-size: 0.78rem; text-transform: uppercase; }
+
+.history td { vertical-align: top; }
+.decision { background: #0a0c10; padding: 0.75rem; border-radius: 6px;
+            border: 1px solid var(--border); margin-bottom: 0.75rem; }
+.decision pre { white-space: pre-wrap; word-break: break-word; font-size: 0.85rem; margin: 0; max-height: 240px; overflow: auto; }
+.chart { margin-top: 1rem; min-height: 0; }
+.picks { margin-top: 1rem; }

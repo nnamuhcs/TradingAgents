@@ -1,0 +1,92 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tradingagents-webui
+  namespace: tradingagents
+  labels:
+    app.kubernetes.io/name: tradingagents
+    app.kubernetes.io/component: webui
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: tradingagents
+      app.kubernetes.io/component: webui
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: tradingagents
+        app.kubernetes.io/component: webui
+    spec:
+      containers:
+        - name: webui
+          image: tradingagents-webui:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8000
+              name: http
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: webui-secret
+                  key: DATABASE_URL
+          envFrom:
+            - configMapRef:
+                name: tradingagents-config
+            - secretRef:
+                name: tradingagents-secrets
+          volumeMounts:
+            - name: data
+              mountPath: /home/appuser/.tradingagents
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: "200m"
+              memory: "512Mi"
+            limits:
+              cpu: "2"
+              memory: "2Gi"
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: tradingagents-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tradingagents-webui
+  namespace: tradingagents
+  labels:
+    app.kubernetes.io/name: tradingagents
+    app.kubernetes.io/component: webui
+spec:
+  selector:
+    app.kubernetes.io/name: tradingagents
+    app.kubernetes.io/component: webui
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8000
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: webui-secret
+  namespace: tradingagents
+type: Opaque
+stringData:
+  # Postgres DSN consumed by webui/db.py
+  DATABASE_URL: postgresql+asyncpg://tradingagents:tradingagents-localdev@postgres:5432/tradingagents

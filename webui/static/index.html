@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>TradingAgents WebUI</title>
+<script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+<script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+<link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+<div x-data="app()" x-init="init()">
+
+<header>
+  <h1>📈 TradingAgents</h1>
+  <nav>
+    <button @click="page='new'" :class="{active: page==='new'}">New Run</button>
+    <button @click="page='history'; loadHistory()" :class="{active: page==='history'}">History</button>
+    <button @click="page='scanner'" :class="{active: page==='scanner'}">Scanner</button>
+  </nav>
+</header>
+
+<main>
+
+<!-- ─────────── NEW RUN ─────────── -->
+<section x-show="page==='new'">
+  <div class="grid">
+    <div class="form-card">
+      <h2>Start a new analysis</h2>
+
+      <label>Ticker source</label>
+      <select x-model="form.ticker_source">
+        <option value="manual">I'll enter ticker(s) myself</option>
+        <option value="scan-5">Scanner: top 5 picks</option>
+        <option value="scan-10">Scanner: top 10 picks</option>
+        <option value="scan-20">Scanner: top 20 picks</option>
+      </select>
+
+      <template x-if="form.ticker_source==='manual'">
+        <div>
+          <label>Symbols (comma-separated)</label>
+          <input type="text" x-model="form.symbols_str" placeholder="NVDA, AAPL, MSFT" />
+        </div>
+      </template>
+
+      <label>Analysis date</label>
+      <input type="date" x-model="form.analysis_date" />
+
+      <label>Analysts</label>
+      <div class="checkboxes">
+        <template x-for="a in ['market','social','news','fundamentals']" :key="a">
+          <label class="check"><input type="checkbox" :value="a" x-model="form.analysts" /> <span x-text="a"></span></label>
+        </template>
+      </div>
+
+      <div class="row">
+        <div>
+          <label>Research depth</label>
+          <input type="number" min="1" max="5" x-model.number="form.research_depth" />
+        </div>
+        <div>
+          <label>Risk rounds</label>
+          <input type="number" min="1" max="5" x-model.number="form.risk_rounds" />
+        </div>
+        <div>
+          <label>Language</label>
+          <input type="text" x-model="form.language" />
+        </div>
+      </div>
+
+      <details>
+        <summary>Advanced LLM options</summary>
+        <label>Provider</label>
+        <input type="text" x-model="form.llm_provider" />
+        <label>Deep model</label>
+        <input type="text" x-model="form.deep_model" />
+        <label>Quick model</label>
+        <input type="text" x-model="form.quick_model" />
+        <label>Anthropic effort (low/medium/high)</label>
+        <input type="text" x-model="form.anthropic_effort" />
+      </details>
+
+      <button class="primary" @click="startRun()" :disabled="running">
+        <span x-show="!running">Start analysis</span>
+        <span x-show="running">Running…</span>
+      </button>
+      <p class="error" x-text="error"></p>
+    </div>
+
+    <div class="output-card">
+      <h2>Live output <span class="badge" x-text="status" :class="`status-${status}`"></span></h2>
+      <pre class="log" x-ref="logEl" x-text="log.join('\n')"></pre>
+      <template x-if="picks.length">
+        <div class="picks">
+          <h3>Scanner picks</h3>
+          <table>
+            <thead><tr><th>#</th><th>Symbol</th><th>Conviction</th><th>Reasoning</th></tr></thead>
+            <tbody>
+              <template x-for="(p, i) in picks" :key="p.symbol">
+                <tr><td x-text="i+1"></td><td><strong x-text="p.symbol"></strong></td>
+                  <td x-text="(p.conviction||'?').toUpperCase()"></td>
+                  <td x-text="p.reasoning"></td></tr>
+              </template>
+            </tbody>
+          </table>
+        </div>
+      </template>
+      <template x-if="Object.keys(decisions).length">
+        <div class="decisions">
+          <h3>Decisions</h3>
+          <template x-for="[symbol, decision] in Object.entries(decisions)" :key="symbol">
+            <div class="decision">
+              <h4 x-text="symbol"></h4>
+              <pre x-text="decision"></pre>
+              <button @click="loadChart(symbol)">Show chart</button>
+            </div>
+          </template>
+        </div>
+      </template>
+      <div x-ref="chartEl" class="chart"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ─────────── HISTORY ─────────── -->
+<section x-show="page==='history'">
+  <h2>Past runs</h2>
+  <table class="history">
+    <thead><tr><th>When</th><th>Symbols</th><th>Date</th><th>Status</th><th>Decisions</th><th></th></tr></thead>
+    <tbody>
+      <template x-for="r in history" :key="r.id">
+        <tr>
+          <td x-text="new Date(r.created_at+'Z').toLocaleString()"></td>
+          <td x-text="(r.symbols||[]).join(', ')"></td>
+          <td x-text="r.analysis_date"></td>
+          <td><span class="badge" :class="`status-${r.status}`" x-text="r.status"></span></td>
+          <td>
+            <template x-for="[s,d] in Object.entries(r.decisions||{})" :key="s">
+              <div><strong x-text="s+': '"></strong><span x-text="(d||'').slice(0,80)+'…'"></span></div>
+            </template>
+          </td>
+          <td><button @click="viewRun(r.id)">View</button></td>
+        </tr>
+      </template>
+    </tbody>
+  </table>
+</section>
+
+<!-- ─────────── SCANNER ─────────── -->
+<section x-show="page==='scanner'">
+  <h2>Market Scanner</h2>
+  <div class="row">
+    <label>Number of picks <input type="number" min="1" max="20" x-model.number="scanN" /></label>
+    <button class="primary" @click="runScanner()" :disabled="scanning">
+      <span x-show="!scanning">Scan</span>
+      <span x-show="scanning">Scanning…</span>
+    </button>
+  </div>
+  <p x-show="scanResult.market_regime"><strong>Market Regime:</strong> <span x-text="scanResult.market_regime"></span></p>
+  <p x-show="scanResult.themes && scanResult.themes.length"><strong>Themes:</strong> <span x-text="(scanResult.themes||[]).join(', ')"></span></p>
+  <table>
+    <thead><tr><th>#</th><th>Symbol</th><th>Conviction</th><th>Reasoning</th></tr></thead>
+    <tbody>
+      <template x-for="(p, i) in (scanResult.picks||[])" :key="p.symbol">
+        <tr><td x-text="i+1"></td>
+          <td><strong x-text="p.symbol"></strong></td>
+          <td x-text="(p.conviction||'?').toUpperCase()"></td>
+          <td x-text="p.reasoning"></td></tr>
+      </template>
+    </tbody>
+  </table>
+</section>
+
+</main>
+
+<script src="/static/app.js"></script>
+</div>
+</body>
+</html>
