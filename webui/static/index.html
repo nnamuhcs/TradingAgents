@@ -21,13 +21,22 @@
 </header>
 
 <div class="market-ticker">
-  <template x-for="t in marketTicker" :key="t.s">
-    <span><strong x-text="t.s"></strong>
-      <span :class="t.c >= 0 ? 'up' : 'down'"
-            x-text="' ' + (t.p ? t.p.toFixed(2) : '—') + '  ' + (t.c >= 0 ? '▲' : '▼') + ' ' + Math.abs(t.c).toFixed(2) + '%'"></span>
-    </span>
-  </template>
-  <span x-show="!marketTicker.length">Loading market ticker…</span>
+  <div class="ticker-track" :class="{paused: marketTicker.length === 0}">
+    <template x-for="t in marketTicker" :key="'a-'+t.s">
+      <span class="ticker-item"><strong x-text="t.s"></strong>
+        <span :class="t.c >= 0 ? 'up' : 'down'"
+              x-text="' ' + (t.p ? t.p.toFixed(2) : '—') + '  ' + (t.c >= 0 ? '▲' : '▼') + ' ' + Math.abs(t.c).toFixed(2) + '%'"></span>
+      </span>
+    </template>
+    <!-- duplicate the same items so the marquee is seamless -->
+    <template x-for="t in marketTicker" :key="'b-'+t.s">
+      <span class="ticker-item" aria-hidden="true"><strong x-text="t.s"></strong>
+        <span :class="t.c >= 0 ? 'up' : 'down'"
+              x-text="' ' + (t.p ? t.p.toFixed(2) : '—') + '  ' + (t.c >= 0 ? '▲' : '▼') + ' ' + Math.abs(t.c).toFixed(2) + '%'"></span>
+      </span>
+    </template>
+    <span x-show="!marketTicker.length" class="ticker-item">Loading market ticker…</span>
+  </div>
 </div>
 
 <main>

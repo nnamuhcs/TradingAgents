@@ -364,20 +364,52 @@ section .row label {
 }
 section .row label input { width: 70px; }
 
-/* ──────────────────────── MARKET TICKER (decorative) ──────────────────────── */
+/* ──────────────────────── MARKET TICKER (scrolling marquee) ──────────────────────── */
 .market-ticker {
-  display: flex;
-  gap: 24px;
-  padding: 4px 12px;
   background: var(--bg-panel-2);
   border-bottom: 1px solid var(--border);
-  font-size: 10px;
+  font-size: 11px;
   overflow: hidden;
+  position: relative;
   white-space: nowrap;
+  padding: 0;
 }
-.market-ticker span { color: var(--fg-muted); }
-.market-ticker .up { color: var(--green); }
-.market-ticker .down { color: var(--red); }
+.market-ticker::before,
+.market-ticker::after {
+  content: "";
+  position: absolute; top: 0; bottom: 0; width: 60px;
+  z-index: 2; pointer-events: none;
+}
+.market-ticker::before { left: 0;  background: linear-gradient(to right, var(--bg-panel-2), transparent); }
+.market-ticker::after  { right: 0; background: linear-gradient(to left,  var(--bg-panel-2), transparent); }
+
+.ticker-track {
+  display: inline-flex;
+  gap: 32px;
+  padding: 6px 0;
+  /* Duplicated content lets us animate from 0 to -50% for a seamless loop */
+  animation: ticker-scroll 60s linear infinite;
+  will-change: transform;
+}
+.ticker-track.paused { animation-play-state: paused; }
+.market-ticker:hover .ticker-track { animation-play-state: paused; }
+
+.ticker-item {
+  display: inline-flex; gap: 6px; align-items: baseline;
+  padding-left: 24px; padding-right: 0;
+  border-left: 1px solid var(--border);
+  color: var(--fg-muted);
+  font-family: 'JetBrains Mono', monospace;
+}
+.ticker-item:first-child { border-left: none; padding-left: 16px; }
+.ticker-item strong { color: var(--amber); font-weight: 700; letter-spacing: 0.05em; }
+.ticker-item .up   { color: var(--green); }
+.ticker-item .down { color: var(--red); }
+
+@keyframes ticker-scroll {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-50%); }
+}
 
 /* ──────────────────────── FOOTER STATUS BAR ──────────────────────── */
 footer.status-bar {
