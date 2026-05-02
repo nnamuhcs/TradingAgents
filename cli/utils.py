@@ -67,11 +67,11 @@ def select_ticker_source() -> str:
 
 
 def run_scanner_and_pick(max_picks: int, llm_provider: str | None = None,
-                         scanner_model: str | None = None) -> str:
+                         scanner_model: str | None = None) -> list[str]:
     """Run the MarketScanner with a live status spinner, then let the user pick
-    one of the recommended tickers to analyze.
+    one or more of the recommended tickers to analyze.
 
-    Returns the chosen ticker symbol (uppercase).
+    Returns a list of chosen ticker symbols (uppercase). Length >= 1.
     """
     import os
     from tradingagents.scanner import MarketScanner
@@ -99,7 +99,7 @@ def run_scanner_and_pick(max_picks: int, llm_provider: str | None = None,
 
     if not picks:
         console.print("[red]Scanner returned no picks. Falling back to manual entry.[/red]")
-        return get_ticker()
+        return [get_ticker()]
 
     table = Table(title=f"Scanner Picks (top {len(picks)})", show_lines=False)
     table.add_column("#", style="dim", width=3)
@@ -141,6 +141,55 @@ def run_scanner_and_pick(max_picks: int, llm_provider: str | None = None,
         console.print(f"[bold]Themes:[/bold] {', '.join(detailed['themes'])}")
     console.print(table)
 
+    # Step 2: how many to deep-analyze?
+    mode = questionary.select(
+        "How do you want to deep-analyze the picks?",
+        choices=[
+            questionary.Choice("Pick ONE to deep-analyze", value="one"),
+            questionary.Choice(f"Run ALL {len(picks)} picks (sequentially)", value="all"),
+            questionary.Choice("Pick MULTIPLE (space to toggle)", value="multi"),
+            questionary.Choice("(none — let me type a ticker manually)", value="manual"),
+        ],
+        instruction="\n- Use arrow keys to navigate\n- Press Enter to select",
+        style=questionary.Style(
+            [
+                ("selected", "fg:magenta noinherit"),
+                ("highlighted", "fg:magenta noinherit"),
+                ("pointer", "fg:magenta noinherit"),
+            ]
+        ),
+    ).ask()
+
+    if mode is None or mode == "manual":
+        return [get_ticker()]
+    if mode == "all":
+        return [normalize_ticker_symbol(p["symbol"]) for p in picks]
+    if mode == "multi":
+        chosen = questionary.checkbox(
+            "Select symbols to deep-analyze (space to toggle, enter to confirm):",
+            choices=[
+                questionary.Choice(
+                    f"{p['symbol']:<6}  [{(p.get('conviction') or '?').upper()}]  "
+                    f"{(p.get('reasoning') or '')[:70]}",
+                    value=p["symbol"],
+                    checked=True,
+                )
+                for p in picks
+            ],
+            style=questionary.Style(
+                [
+                    ("selected", "fg:magenta noinherit"),
+                    ("highlighted", "fg:magenta noinherit"),
+                    ("pointer", "fg:magenta noinherit"),
+                ]
+            ),
+        ).ask()
+        if not chosen:
+            console.print("[yellow]No symbols selected; falling back to manual entry.[/yellow]")
+            return [get_ticker()]
+        return [normalize_ticker_symbol(s) for s in chosen]
+
+    # mode == "one"
     chosen = questionary.select(
         "Which one do you want to deep-analyze?",
         choices=[
@@ -162,8 +211,8 @@ def run_scanner_and_pick(max_picks: int, llm_provider: str | None = None,
     ).ask()
 
     if chosen is None or chosen == "__manual__":
-        return get_ticker()
-    return normalize_ticker_symbol(chosen)
+        return [get_ticker()]
+    return [normalize_ticker_symbol(chosen)]
 
 
 def normalize_ticker_symbol(ticker: str) -> str:

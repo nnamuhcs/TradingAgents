@@ -526,8 +526,11 @@ def get_user_selections():
     # Step 1: Ticker symbol — manual or via Market Scanner
     env_ticker = os.getenv("TA_TICKER")
     if env_ticker:
-        selected_ticker = env_ticker.upper()
-        console.print(f"[green]✓ Ticker (from env):[/green] {selected_ticker}")
+        # Comma-separated tickers supported via env (e.g. "AAPL,MSFT")
+        selected_tickers = [t.strip().upper() for t in env_ticker.split(",") if t.strip()]
+        console.print(
+            f"[green]✓ Ticker(s) (from env):[/green] {', '.join(selected_tickers)}"
+        )
     else:
         console.print(
             create_question_box(
@@ -547,7 +550,7 @@ def get_user_selections():
                     "SPY",
                 )
             )
-            selected_ticker = get_ticker()
+            selected_tickers = [get_ticker()]
         else:
             n_picks = int(ticker_source.split("-")[1])
             scanner_provider = (
@@ -558,12 +561,14 @@ def get_user_selections():
                 or os.getenv("DEEP_THINK_LLM")
                 or "claude-opus-4.7"
             )
-            selected_ticker = run_scanner_and_pick(
+            selected_tickers = run_scanner_and_pick(
                 max_picks=n_picks,
                 llm_provider=scanner_provider,
                 scanner_model=scanner_model,
             )
-            console.print(f"[green]✓ Selected from scanner:[/green] {selected_ticker}")
+            console.print(
+                f"[green]✓ Selected from scanner:[/green] {', '.join(selected_tickers)}"
+            )
 
     # Step 2: Analysis date
     env_date = os.getenv("TA_DATE")
@@ -698,7 +703,8 @@ def get_user_selections():
         anthropic_effort = ask_anthropic_effort()
 
     return {
-        "ticker": selected_ticker,
+        "ticker": selected_tickers[0],
+        "tickers": selected_tickers,
         "analysis_date": analysis_date,
         "analysts": selected_analysts,
         "research_depth": selected_research_depth,
@@ -1030,6 +1036,38 @@ def format_tool_args(args, max_length=80) -> str:
 def run_analysis(checkpoint: bool = False):
     # First get all user selections
     selections = get_user_selections()
+    tickers = selections.get("tickers") or [selections["ticker"]]
+
+    if len(tickers) > 1:
+        console.print(
+            f"\n[bold cyan]Running analysis sequentially for {len(tickers)} tickers:[/bold cyan] "
+            f"{', '.join(tickers)}\n"
+        )
+
+    aggregated_decisions: dict[str, str] = {}
+    for idx, ticker in enumerate(tickers, 1):
+        if len(tickers) > 1:
+            console.print(
+                f"\n[bold magenta]══ ({idx}/{len(tickers)}) {ticker} ══[/bold magenta]"
+            )
+        # Per-iteration selections snapshot so that the existing code path,
+        # which reads selections["ticker"] throughout, works unchanged.
+        selections["ticker"] = ticker
+        try:
+            decision = _run_one_analysis(selections, checkpoint=checkpoint)
+            aggregated_decisions[ticker] = decision or "(no decision)"
+        except Exception as e:  # pragma: no cover
+            console.print(f"[red]ERROR analyzing {ticker}: {e}[/red]")
+            aggregated_decisions[ticker] = f"ERROR: {e}"
+
+    if len(tickers) > 1:
+        console.print("\n[bold cyan]Multi-ticker analysis complete[/bold cyan]")
+        for sym, dec in aggregated_decisions.items():
+            head = (dec or "")[:200]
+            console.print(f"  • [bold]{sym}[/bold]: {head}")
+
+
+def _run_one_analysis(selections: dict, checkpoint: bool = False) -> str:
 
     # Create config with selected research depth
     config = DEFAULT_CONFIG.copy()
@@ -1296,6 +1334,8 @@ def run_analysis(checkpoint: bool = False):
     display_choice = typer.prompt("\nDisplay full report on screen?", default="Y").strip().upper()
     if display_choice in ("Y", "YES", ""):
         display_complete_report(final_state)
+
+    return str(decision)
 
 
 @app.command()

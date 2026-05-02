@@ -7,11 +7,13 @@ Layers:
   4. LLM Synthesis                         (30 → 5-10 with reasoning)
 """
 
+import io
 import json
 import logging
 import os
 import re
 import time
+import urllib.request
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -50,17 +52,58 @@ def _get_sp500_tickers() -> list[str]:
     global _sp500_cache, _sp500_cache_time
     if _sp500_cache and (time.time() - _sp500_cache_time) < _SP500_CACHE_TTL:
         return _sp500_cache
+
+    sources = [
+        # Wikipedia requires a real-browser UA; pandas.read_html alone gets 403
+        ("wikipedia", "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies", "Symbol"),
+        # GitHub mirror that publishes the constituents as CSV / HTML
+        ("datahub-html", "https://datahub.io/core/s-and-p-500-companies/r/0.html", "Symbol"),
+    ]
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+        ),
+        "Accept": "text/html,application/xhtml+xml",
+    }
+    for name, url, col in sources:
+        try:
+            req = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                html = resp.read().decode("utf-8", errors="ignore")
+            tables = pd.read_html(io.StringIO(html), header=0)
+            for t in tables:
+                if col in t.columns:
+                    tickers = [str(s).replace(".", "-").strip() for s in t[col].tolist() if s]
+                    if len(tickers) > 100:
+                        _sp500_cache = tickers
+                        _sp500_cache_time = time.time()
+                        logger.info(f"Loaded {len(tickers)} tickers from {name}")
+                        return tickers
+        except Exception as e:
+            logger.warning(f"S&P 500 fetch from {name} failed: {e}")
+
+    # Try datahub CSV as a final structured source
     try:
-        table = pd.read_html(
-            "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies", header=0
+        req = urllib.request.Request(
+            "https://datahub.io/core/s-and-p-500-companies/r/constituents.csv",
+            headers=headers,
         )
-        tickers = [t.replace(".", "-") for t in table[0]["Symbol"].tolist()]
-        _sp500_cache = tickers
-        _sp500_cache_time = time.time()
-        return tickers
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            csv_text = resp.read().decode("utf-8", errors="ignore")
+        df = pd.read_csv(io.StringIO(csv_text))
+        col = "Symbol" if "Symbol" in df.columns else df.columns[0]
+        tickers = [str(s).replace(".", "-").strip() for s in df[col].tolist() if s]
+        if len(tickers) > 100:
+            _sp500_cache = tickers
+            _sp500_cache_time = time.time()
+            logger.info(f"Loaded {len(tickers)} tickers from datahub CSV")
+            return tickers
     except Exception as e:
-        logger.warning(f"Failed to fetch S&P 500 list, using fallback: {e}")
-        return list(_SP500_FALLBACK)
+        logger.warning(f"S&P 500 fetch from datahub CSV failed: {e}")
+
+    logger.warning(f"All S&P 500 sources failed, using {len(_SP500_FALLBACK)}-ticker fallback")
+    return list(_SP500_FALLBACK)
 
 
 # ── Layer 1: Quantitative Screening ──────────────────────────────────────────
