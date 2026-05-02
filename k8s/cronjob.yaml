@@ -1,0 +1,50 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: tradingagents-daily
+  namespace: tradingagents
+  labels:
+    app.kubernetes.io/name: tradingagents
+    app.kubernetes.io/component: scheduler
+spec:
+  # Run at 9:30 AM ET (market open) Mon-Fri
+  schedule: "30 13 * * 1-5"
+  timeZone: "America/New_York"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 30
+  failedJobsHistoryLimit: 10
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 1800
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: tradingagents
+            app.kubernetes.io/component: worker
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: tradingagents
+              image: tradingagents:latest
+              imagePullPolicy: IfNotPresent
+              command: ["python", "main_copilot.py"]
+              envFrom:
+                - configMapRef:
+                    name: tradingagents-config
+                - secretRef:
+                    name: tradingagents-secrets
+              volumeMounts:
+                - name: data
+                  mountPath: /home/appuser/.tradingagents
+              resources:
+                requests:
+                  cpu: "500m"
+                  memory: "512Mi"
+                limits:
+                  cpu: "2"
+                  memory: "2Gi"
+          volumes:
+            - name: data
+              persistentVolumeClaim:
+                claimName: tradingagents-data
