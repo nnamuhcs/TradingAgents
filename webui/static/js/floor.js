@@ -918,21 +918,13 @@
 
   function simpleMarkdown(md) {
     if (!md) return '';
-    // Prefer marked (GFM tables, lists, code, etc.); fall back to a minimal
-    // hand-rolled renderer if marked isn't loaded for any reason.
-    try {
-      if (window.marked && typeof window.marked.parse === 'function') {
-        marked.setOptions({ gfm: true, breaks: false });
-        return marked.parse(md);
-      }
-    } catch (_) { /* fall through */ }
     const safe = md.replace(/[<>&]/g, s => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[s]));
     return safe
-      .replace(/^### (.*)$/gm, '<h3>$1</h3>')
-      .replace(/^## (.*)$/gm,  '<h2>$1</h2>')
-      .replace(/^# (.*)$/gm,   '<h1>$1</h1>')
-      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-      .replace(/\*(.+?)\*/g, '<em>$1</em>')
+      .replace(/^### (.*)$/gm, '<h3 style="font-size:14px;margin:18px 0 6px;color:var(--v-text);text-transform:uppercase;letter-spacing:0.14em;">$1</h3>')
+      .replace(/^## (.*)$/gm,  '<h2 style="font-size:16px;margin:22px 0 8px;color:var(--v-text);">$1</h2>')
+      .replace(/^# (.*)$/gm,   '<h1 style="font-size:18px;margin:24px 0 10px;color:var(--v-text);">$1</h1>')
+      .replace(/\*\*(.+?)\*\*/g, '<strong style="color:var(--v-text);">$1</strong>')
+      .replace(/\*(.+?)\*/g, '<em style="color:var(--v-amber);font-style:normal;font-weight:500;">$1</em>')
       .replace(/^- (.*)$/gm, '<div style="padding-left:14px;position:relative;margin:4px 0;">• $1</div>')
       .replace(/\n\n/g, '<br><br>');
   }
