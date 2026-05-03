@@ -113,20 +113,27 @@ def _extract_rating(decision_text: str) -> str:
 
 
 def _verve_publish_factory(run_id: str, symbol: str):
-    """Wrap bus.publish to also emit Verve-compatible event aliases.
+    """Wrap bus.publish to emit each event ONCE in a hybrid shape that both
+    the legacy and the Verve front-ends can read.
 
-    The legacy frontend (cli/static/style.css era) and the new Verve drop-in
-    expect slightly different field shapes. We emit BOTH so neither breaks:
+    For each event we publish a single payload that contains both shapes'
+    field names, so neither side sees `undefined` and neither side sees
+    the same event twice.
 
-      • agent_status: legacy uses long agent names ("Market Analyst") and
-        statuses pending/in_progress/completed/skipped. Verve expects short
-        keys ("market", "bull", "trader", "risk", "portfolio") and statuses
-        wait/live/done. We always publish both shapes.
-      • message: legacy uses {type, content}. Verve uses {agent, text, round?}.
-        We add an alias when we can infer agent from context (Bull/Bear).
-      • tool_call: legacy uses {tool}. Verve uses {name}. We populate both.
-      • decision: legacy fires inside symbol_done. Verve listens for an
-        explicit 'decision' event. The runner emits one explicitly.
+    Translations:
+      • agent_status: legacy uses long agent names + pending/in_progress/
+        completed/skipped; Verve uses short keys + wait/live/done. We send
+        ONE payload with both: {agent_long, status_long, agent, status}.
+      • agent_states: same idea — one payload with `states` (long-keyed)
+        and `states_short` (short-keyed) plus per-agent statuses in both
+        forms.
+      • message: legacy uses {type, content}; Verve uses {agent, text}. We
+        send {type, content, text, agent} in one event. The UIs pick the
+        fields they understand.
+      • tool_call: legacy uses {tool}; Verve uses {name}. Send
+        {tool, name, args} once.
+      • report_section: same key on both, no translation needed beyond the
+        short-section alias the streamer already emits separately.
     """
     AGENT_LONG_TO_SHORT = {
         "Market Analyst":       "market",
@@ -135,52 +142,84 @@ def _verve_publish_factory(run_id: str, symbol: str):
         "Fundamentals Analyst": "fundamentals",
         "Bull Researcher":      "bull",
         "Bear Researcher":      "bear",
-        "Research Manager":     "research",  # not in Verve roster but harmless
+        "Research Manager":     "research",
         "Trader":               "trader",
-        "Aggressive Analyst":   "risk",      # collapse the 3 risk seats to 'risk'
+        "Aggressive Analyst":   "risk",
         "Neutral Analyst":      "risk",
         "Conservative Analyst": "risk",
         "Portfolio Manager":    "portfolio",
     }
     STATUS_TO_VERVE = {
-        "pending":    "wait",
-        "skipped":    "wait",
-        "in_progress":"live",
-        "completed":  "done",
+        "pending":     "wait",
+        "skipped":     "wait",
+        "in_progress": "live",
+        "completed":   "done",
     }
 
     def publish(event: str, data: dict) -> None:
-        # 1) Always send the legacy shape verbatim
-        bus.publish(run_id, event, {"symbol": symbol, **data})
+        payload = {"symbol": symbol, **data}
 
-        # 2) Translate to Verve shape where it differs, and send under
-        #    the same event name (additional emission, not replacement)
         if event == "agent_status":
-            short = AGENT_LONG_TO_SHORT.get(data.get("agent", ""))
+            long = data.get("agent", "")
+            short = AGENT_LONG_TO_SHORT.get(long)
             v_status = STATUS_TO_VERVE.get(data.get("status", ""), data.get("status"))
-            if short and v_status:
-                bus.publish(run_id, "agent_status", {
-                    "symbol": symbol, "agent": short, "status": v_status,
-                })
-        elif event == "agent_states":
-            # Send a per-agent status burst in Verve shape so the Verve UI
-            # can hydrate its initial agent panel.
+            # keep legacy: agent (long), status (raw)
+            # add Verve aliases: agent_short, status_short
+            payload["agent_long"] = long
+            payload["status_long"] = data.get("status")
+            if short:
+                payload["agent"] = short
+            if v_status:
+                payload["status"] = v_status
+            bus.publish(run_id, "agent_status", payload)
+            return
+
+        if event == "agent_states":
             states = data.get("states", {})
+            states_short = {}
+            for long_name, status in states.items():
+                short = AGENT_LONG_TO_SHORT.get(long_name)
+                v_status = STATUS_TO_VERVE.get(status, status)
+                if short and v_status:
+                    states_short[short] = v_status
+            payload["states_short"] = states_short
+            bus.publish(run_id, "agent_states", payload)
+            # The Verve UI listens for per-agent agent_status events to hydrate
+            # its initial panel. Send one per known agent so its 'wait' dots
+            # render correctly even before the first chunk arrives.
             for long_name, status in states.items():
                 short = AGENT_LONG_TO_SHORT.get(long_name)
                 v_status = STATUS_TO_VERVE.get(status, status)
                 if short and v_status:
                     bus.publish(run_id, "agent_status", {
-                        "symbol": symbol, "agent": short, "status": v_status,
+                        "symbol": symbol,
+                        "agent_long": long_name,
+                        "status_long": status,
+                        "agent": short,
+                        "status": v_status,
                     })
-        elif event == "tool_call":
-            # alias 'tool' → 'name'
-            if "tool" in data and "name" not in data:
-                bus.publish(run_id, "tool_call", {
-                    "symbol": symbol,
-                    "name": data["tool"],
-                    "args": data.get("args"),
-                })
+            return
+
+        if event == "message":
+            # data already has {type, content} from legacy. Add Verve aliases
+            # {text, agent} where agent is inferred from current context.
+            payload.setdefault("text", data.get("content", ""))
+            # 'agent' is set on the streamer side via _emit_message_with_agent;
+            # if not, leave undefined-friendly.
+            bus.publish(run_id, "message", payload)
+            return
+
+        if event == "tool_call":
+            # Provide both 'tool' and 'name'
+            tool_name = data.get("tool") or data.get("name")
+            payload["tool"] = tool_name
+            payload["name"] = tool_name
+            bus.publish(run_id, "tool_call", payload)
+            return
+
+        # Default — emit verbatim
+        bus.publish(run_id, event, payload)
+
     return publish
 
 

@@ -121,16 +121,14 @@ class GraphStreamer:
                 self._processed_message_ids.add(mid)
             mtype, content = _classify(message)
             if content:
-                # Legacy shape: {type, content}
-                self._publish("message", {"type": mtype, "content": content})
-                # Verve shape alias: {agent, text} — best-effort agent inference
-                # from whichever analyst is currently in_progress
+                # Emit ONCE in a hybrid shape: legacy {type,content} +
+                # Verve {agent,text}. The publish-factory in runner.py adds
+                # a 'text' alias and we set 'agent' here when known.
                 inferred = self._current_active_short_agent()
+                msg_payload: dict[str, Any] = {"type": mtype, "content": content}
                 if inferred:
-                    self._publish("message", {
-                        "agent": inferred,
-                        "text": content,
-                    })
+                    msg_payload["agent"] = inferred
+                self._publish("message", msg_payload)
 
             tool_calls = getattr(message, "tool_calls", None)
             if tool_calls:
