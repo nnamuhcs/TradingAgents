@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>TradingAgents</title>
+<script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked@13.0.0/marked.min.js"></script>
+<script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+<link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+<div x-data="app()" x-init="init()">
+
+<header>
+  <h1>TradingAgents</h1>
+  <nav>
+    <button @click="page='new'" :class="{active: page==='new'}">New Run</button>
+    <button @click="page='history'; loadHistory()" :class="{active: page==='history'}">History</button>
+    <button @click="page='scanner'" :class="{active: page==='scanner'}">Scanner</button>
+    <button @click="showSettings = !showSettings" :class="{active: showSettings}">⚙ Watchlist</button>
+  </nav>
+</header>
+
+<div class="market-ticker">
+  <div class="ticker-track" :class="{paused: marketTicker.length === 0}">
+    <template x-for="t in marketTicker" :key="'a-'+t.s">
+      <span class="ticker-item" :class="'kind-'+(t.kind||'item')">
+        <strong x-text="t.s"></strong>
+        <span :class="t.c >= 0 ? 'up' : 'down'"
+              x-text="' ' + (t.p ? t.p.toFixed(2) : '—') + '  ' + (t.c >= 0 ? '▲' : '▼') + ' ' + Math.abs(t.c).toFixed(2) + '%'"></span>
+      </span>
+    </template>
+    <template x-for="t in marketTicker" :key="'b-'+t.s">
+      <span class="ticker-item" :class="'kind-'+(t.kind||'item')" aria-hidden="true">
+        <strong x-text="t.s"></strong>
+        <span :class="t.c >= 0 ? 'up' : 'down'"
+              x-text="' ' + (t.p ? t.p.toFixed(2) : '—') + '  ' + (t.c >= 0 ? '▲' : '▼') + ' ' + Math.abs(t.c).toFixed(2) + '%'"></span>
+      </span>
+    </template>
+    <span x-show="!marketTicker.length" class="ticker-item">Loading market ticker…</span>
+  </div>
+</div>
+
+<div class="settings-popover" x-show="showSettings" x-transition>
+  <div class="popover-head">
+    <h3>Pinned Tickers</h3>
+    <button class="chip-x" @click="showSettings = false" title="close">×</button>
+  </div>
+  <p class="muted">Pinned symbols always show in the marquee. Stored in your browser only.</p>
+  <div class="pin-row">
+    <input type="text" x-model="newPin" @keydown.enter.prevent="addPin()" placeholder="e.g. AVGO, BTC-USD, ^VIX" />
+    <button @click="addPin()">Add</button>
+  </div>
+  <div class="pin-list">
+    <template x-for="p in pinned" :key="p">
+      <span class="pin-chip">
+        <strong x-text="p"></strong>
+        <button @click="removePin(p)" class="chip-x" title="remove">×</button>
+      </span>
+    </template>
+    <span x-show="!pinned.length" class="muted">No custom pins yet.</span>
+  </div>
+</div>
+
+<main>
+
+<!-- ─────────── NEW RUN ─────────── -->
+<section x-show="page==='new'">
+  <div class="layout">
+
+    <div class="panel">
+      <h2>New Analysis</h2>
+
+      <label>Ticker source</label>
+      <select x-model="form.ticker_source">
+        <option value="manual">I'll enter ticker(s) myself</option>
+        <option value="scan-3">Scanner: top 3 picks</option>
+        <option value="scan-5">Scanner: top 5 picks</option>
+      </select>
+
+      <template x-if="form.ticker_source==='manual'">
+        <div>
+          <label>Symbols (comma-separated, up to 5)</label>
+          <input type="text" x-model="form.symbols_str" placeholder="NVDA, AAPL, MSFT" />
+          <div class="hint" x-show="symbolCount > 5" style="color: var(--yellow); font-size: 11px; margin-top: 4px;">
+            ⚠ Only the first 5 symbols will be analyzed (currently <span x-text="symbolCount"></span>).
+          </div>
+        </div>
+      </template>
+
+      <label>Analysis date</label>
+      <input type="date" x-model="form.analysis_date" />
+
+      <label>Analysts</label>
+      <div class="checkboxes">
+        <template x-for="a in [
+          { v: 'market',       l: 'Market' },
+          { v: 'social',       l: 'Social' },
+          { v: 'news',         l: 'News' },
+          { v: 'fundamentals', l: 'Fundamentals' }
+        ]" :key="a.v">
+          <label class="check">
+            <input type="checkbox" :value="a.v" x-model="form.analysts" />
+            <span x-text="a.l"></span>
+          </label>
+        </template>
+      </div>
+
+      <div class="row">
+        <div>
+          <label>Research depth</label>
+          <select x-model.number="form.research_depth">
+            <option :value="1">Shallow</option>
+            <option :value="3">Medium</option>
+            <option :value="5">Deep</option>
+          </select>
+        </div>
+        <div>
+          <label>Language</label>
+          <select x-model="form.language">
+            <option value="English">English</option>
+            <option value="简体中文">简体中文</option>
+            <option value="繁體中文">繁體中文</option>
+            <option value="日本語">日本語</option>
+            <option value="한국어">한국어</option>
+            <option value="Español">Español</option>
+            <option value="Français">Français</option>
+            <option value="Deutsch">Deutsch</option>
+            <option value="Português">Português</option>
+            <option value="Italiano">Italiano</option>
+            <option value="Русский">Русский</option>
+            <option value="العربية">العربية</option>
+            <option value="हिन्दी">हिन्दी</option>
+          </select>
+        </div>
+      </div>
+
+      <details>
+        <summary>Advanced</summary>
+        <label>Provider</label>
+        <input type="text" x-model="form.llm_provider" />
+        <div class="row">
+          <div>
+            <label>Deep model</label>
+            <input type="text" x-model="form.deep_model" />
+          </div>
+          <div>
+            <label>Quick model</label>
+            <input type="text" x-model="form.quick_model" />
+          </div>
+        </div>
+        <label>Anthropic effort</label>
+        <select x-model="form.anthropic_effort">
+          <option value="">— default —</option>
+          <option value="low">Low</option>
+          <option value="medium">Medium</option>
+          <option value="high">High</option>
+        </select>
+      </details>
+
+      <button class="primary" @click="startRun()" :disabled="running">
+        <span x-show="!running">Start Analysis</span>
+        <span x-show="running">Running…</span>
+      </button>
+      <p class="error" x-text="error"></p>
+    </div>
+
+    <div class="panel">
+      <h2>
+        Live Output
+        <span class="badge" :class="`status-${status}`" x-text="status"></span>
+      </h2>
+
+      <!-- Per-symbol tab bar (only when ≥1 symbols active) -->
+      <div class="symbol-tabs" x-show="symbolList.length">
+        <template x-for="sym in symbolList" :key="sym">
+          <button :class="{active: currentSymbol === sym}"
+                  @click="currentSymbol = sym">
+            <span class="dot"
+                  :class="(symbolDone[sym] ? 'completed' : (sym === activeStreamSymbol ? 'in_progress' : 'pending'))"></span>
+            <span x-text="sym"></span>
+            <span x-show="symbolDone[sym]" class="check">✓</span>
+          </button>
+        </template>
+      </div>
+
+      <!-- Scanner funnel (visible during scanner phase) -->
+      <div class="funnel" x-show="funnel.length" x-transition>
+        <div class="funnel-title">Market Scanner Funnel</div>
+        <template x-for="(layer, i) in funnel" :key="layer.layer">
+          <div class="funnel-block">
+            <div class="funnel-row" :class="layer.status">
+              <div class="funnel-num" x-text="'L'+layer.layer"></div>
+              <div class="funnel-name" x-text="layer.name"></div>
+              <div class="funnel-bar">
+                <div class="bar-bg" :style="`width: ${barWidth(layer)}%`"></div>
+                <span class="bar-text">
+                  <span x-text="layer.input != null ? layer.input : '—'"></span>
+                  <span style="color: var(--fg-muted); margin: 0 6px;">→</span>
+                  <span x-text="layer.output != null ? layer.output : '…'"></span>
+                </span>
+              </div>
+              <div class="funnel-info" x-text="layer.info || ''"></div>
+            </div>
+            <div class="symbol-chips" x-show="layer.symbols && layer.symbols.length">
+              <template x-for="sym in (layer.symbols || [])" :key="sym.s">
+                <span class="sym-chip" :class="chipClass(layer, sym)" :title="chipTitle(layer, sym)">
+                  <span x-text="sym.s"></span>
+                  <span x-show="layer.layer === 2 && sym.has_events" class="sym-mark">📅</span>
+                  <span x-show="layer.layer === 3 && sym.has_smart_money" class="sym-mark">$</span>
+                  <span x-show="layer.layer === 4 && sym.picked" class="sym-mark">★</span>
+                </span>
+              </template>
+            </div>
+          </div>
+        </template>
+      </div>
+
+      <div class="live-grid">
+
+        <!-- Agents column -->
+        <div class="panel dense">
+          <div class="panel-title">Agents <span x-show="currentSymbol" style="color: var(--accent2)">— <span x-text="currentSymbol"></span></span></div>
+          <div class="agents">
+            <template x-for="group in agentGroups" :key="group.name">
+              <div class="agent-section">
+                <div class="lbl" x-text="group.name"></div>
+                <template x-for="agent in group.agents" :key="agent">
+                  <div class="agent-row" :class="(perSymbol[currentSymbol]?.agentStates?.[agent]) || 'pending'">
+                    <span class="dot"></span>
+                    <span x-text="agent"></span>
+                  </div>
+                </template>
+              </div>
+            </template>
+          </div>
+        </div>
+
+        <!-- Messages column -->
+        <div class="panel dense">
+          <div class="panel-title">Messages & Tools (<span x-text="visibleMessages.length"></span>)</div>
+          <div class="messages" x-ref="messagesEl">
+            <template x-for="(m, i) in visibleMessages" :key="i">
+              <div class="msg" :class="'t-'+(m.type||'System')">
+                <span class="tag" x-text="m.type"></span>
+                <span class="body" x-text="m.short"></span>
+              </div>
+            </template>
+            <div class="msg" x-show="!visibleMessages.length" style="color: var(--fg-muted);">
+              <span class="tag">—</span>
+              <span class="body">Waiting for events…</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Reports column -->
+        <div class="panel dense">
+          <div class="panel-title">Current Report</div>
+          <div class="report-tabs">
+            <template x-for="tab in reportTabs" :key="tab.key">
+              <button :class="{active: activeTab===tab.key}"
+                      @click="activeTab=tab.key"
+                      x-text="tab.label + ((perSymbol[currentSymbol]?.reports?.[tab.key]) ? ' ✓' : '')"></button>
+            </template>
+          </div>
+          <div class="report-pane" x-html="renderedReport"></div>
+        </div>
+
+      </div>
+
+      <!-- Decisions appear after each symbol completes -->
+      <template x-if="Object.keys(decisions).length">
+        <div class="decisions" style="margin-top: 14px;">
+          <h3>Decisions & Reports</h3>
+          <template x-for="[symbol, decision] in Object.entries(decisions)" :key="symbol">
+            <div class="decision">
+              <div class="decision-head">
+                <h4 x-text="symbol"></h4>
+                <div style="display: flex; gap: 6px;">
+                  <button @click="openReport(symbol)">📄 Full Report</button>
+                  <button @click="downloadReport(symbol)">⬇ .md</button>
+                  <button @click="loadChart(symbol)">📊 Chart</button>
+                </div>
+              </div>
+              <pre x-text="decision"></pre>
+            </div>
+          </template>
+        </div>
+      </template>
+
+      <div x-ref="chartEl" class="chart" x-show="chartActive"></div>
+    </div>
+  </div>
+</section>
+
+<!-- Modal: full report viewer -->
+<div class="modal-backdrop" x-show="reportModal.open" x-transition @click.self="reportModal.open = false">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>
+        Full Report — <span x-text="reportModal.symbol" class="mono" style="color: var(--accent)"></span>
+      </h3>
+      <div style="display: flex; gap: 6px;">
+        <button @click="downloadReport(reportModal.symbol, reportModal.runId)">⬇ Download .md</button>
+        <button @click="copyReport()">📋 Copy</button>
+        <button @click="printReport()">🖨 Print</button>
+        <button @click="reportModal.open = false" class="danger">✕ Close</button>
+      </div>
+    </div>
+    <div class="modal-body report-pane" x-html="reportModal.html"></div>
+  </div>
+</div>
+
+<!-- ─────────── HISTORY ─────────── -->
+<section x-show="page==='history'">
+  <div class="panel">
+    <h2>Past Runs</h2>
+    <table>
+      <thead><tr>
+        <th>When</th><th>Symbols</th><th>Date</th><th>Status</th>
+        <th>Decisions</th><th></th>
+      </tr></thead>
+      <tbody>
+        <template x-for="r in history" :key="r.id">
+          <tr>
+            <td x-text="new Date(r.created_at+'Z').toLocaleString()"></td>
+            <td><strong x-text="(r.symbols||[]).join(', ')"></strong></td>
+            <td x-text="r.analysis_date"></td>
+            <td><span class="badge" :class="`status-${r.status}`" x-text="r.status"></span></td>
+            <td>
+              <template x-for="[s,d] in Object.entries(r.decisions||{})" :key="s">
+                <div><strong x-text="s+': '"></strong><span x-text="((d||'').slice(0,80))+'…'"></span></div>
+              </template>
+              <span x-show="!Object.keys(r.decisions||{}).length" style="color: var(--fg-muted);">—</span>
+            </td>
+            <td style="display: flex; gap: 4px; flex-wrap: wrap;">
+              <button @click="viewRun(r.id)">View</button>
+              <template x-for="sym in (r.symbols||[])" :key="sym">
+                <button @click="openReport(sym, r.id)" style="font-size: 10.5px; padding: 4px 8px;">
+                  📄 <span x-text="sym"></span>
+                </button>
+              </template>
+              <button x-show="r.status==='running' || r.status==='pending'"
+                      class="danger" @click="cancelRun(r.id)">Cancel</button>
+            </td>
+          </tr>
+        </template>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ─────────── SCANNER ─────────── -->
+<section x-show="page==='scanner'">
+  <div class="panel">
+    <h2>Market Scanner</h2>
+    <div class="scanner-row">
+      <label>Picks <input type="number" min="1" max="20" x-model.number="scanN" /></label>
+      <button class="primary" @click="runScanner()" :disabled="scanning" style="width: auto; margin: 0;">
+        <span x-show="!scanning">Scan</span>
+        <span x-show="scanning">Scanning…</span>
+      </button>
+    </div>
+
+    <!-- Live funnel during scanner-tab scans -->
+    <div class="funnel" x-show="scanFunnel.length" x-transition>
+      <div class="funnel-title">Scanner Pipeline</div>
+      <template x-for="layer in scanFunnel" :key="layer.layer">
+        <div class="funnel-block">
+          <div class="funnel-row" :class="layer.status">
+            <div class="funnel-num" x-text="'L'+layer.layer"></div>
+            <div class="funnel-name" x-text="layer.name"></div>
+            <div class="funnel-bar">
+              <div class="bar-bg" :style="`width: ${barWidth(layer, scanFunnel)}%`"></div>
+              <span class="bar-text">
+                <span x-text="layer.input != null ? layer.input : '—'"></span>
+                <span style="color: var(--fg-muted); margin: 0 6px;">→</span>
+                <span x-text="layer.output != null ? layer.output : '…'"></span>
+              </span>
+            </div>
+            <div class="funnel-info" x-text="layer.info || ''"></div>
+          </div>
+          <div class="symbol-chips" x-show="layer.symbols && layer.symbols.length">
+            <template x-for="sym in (layer.symbols || [])" :key="sym.s">
+              <span class="sym-chip" :class="chipClass(layer, sym)" :title="chipTitle(layer, sym)">
+                <span x-text="sym.s"></span>
+                <span x-show="layer.layer === 2 && sym.has_events" class="sym-mark">📅</span>
+                <span x-show="layer.layer === 3 && sym.has_smart_money" class="sym-mark">$</span>
+                <span x-show="layer.layer === 4 && sym.picked" class="sym-mark">★</span>
+              </span>
+            </template>
+          </div>
+        </div>
+      </template>
+    </div>
+
+    <p x-show="scanResult.market_regime"><strong>Market Regime:</strong> <span x-text="scanResult.market_regime"></span></p>
+    <p x-show="scanResult.themes && scanResult.themes.length"><strong>Themes:</strong> <span x-text="(scanResult.themes||[]).join(', ')"></span></p>
+    <table x-show="(scanResult.picks || []).length">
+      <thead><tr><th>#</th><th>Symbol</th><th>Conviction</th><th>Reasoning</th></tr></thead>
+      <tbody>
+        <template x-for="(p, i) in (scanResult.picks||[])" :key="p.symbol">
+          <tr>
+            <td x-text="i+1"></td>
+            <td><strong x-text="p.symbol"></strong></td>
+            <td x-text="(p.conviction||'?').toUpperCase()"></td>
+            <td x-text="p.reasoning"></td>
+          </tr>
+        </template>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+</main>
+
+<footer class="status-bar">
+  <span class="ok" :class="{warn: !liveStreamConnected}">
+    <span x-show="liveStreamConnected">● LIVE</span>
+    <span x-show="!liveStreamConnected">○ POLL 60s</span>
+  </span>
+  <span>Provider: <strong x-text="form.llm_provider"></strong></span>
+  <span>Deep: <strong x-text="form.deep_model"></strong></span>
+  <span>Quick: <strong x-text="form.quick_model"></strong></span>
+  <span class="clock" x-text="clockNow"></span>
+</footer>
+
+<script src="/static/app.js"></script>
+</div>
+</body>
+</html>

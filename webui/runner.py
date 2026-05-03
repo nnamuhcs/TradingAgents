@@ -84,6 +84,106 @@ def _scanner_resolve(run_id: str, snap: dict[str, Any]) -> tuple[list[str], dict
                      "themes": detailed.get("themes")}
 
 
+def _extract_rating(decision_text: str) -> str:
+    """Heuristic-extract a Buy/Overweight/Hold/Underweight/Sell rating from
+    the Portfolio Manager's free-text decision."""
+    if not decision_text:
+        return "Hold"
+    t = decision_text.strip()
+    upper = t.upper()
+    # Look for explicit FINAL RECOMMENDATION line first
+    for label in ("STRONG BUY", "OVERWEIGHT", "BUY", "ACCUMULATE",
+                  "HOLD", "NEUTRAL",
+                  "UNDERWEIGHT", "REDUCE", "SELL", "STRONG SELL"):
+        if label in upper:
+            mapping = {
+                "STRONG BUY": "Buy",
+                "OVERWEIGHT": "Overweight",
+                "BUY": "Buy",
+                "ACCUMULATE": "Buy",
+                "HOLD": "Hold",
+                "NEUTRAL": "Hold",
+                "UNDERWEIGHT": "Underweight",
+                "REDUCE": "Underweight",
+                "SELL": "Sell",
+                "STRONG SELL": "Sell",
+            }
+            return mapping[label]
+    return "Hold"
+
+
+def _verve_publish_factory(run_id: str, symbol: str):
+    """Wrap bus.publish to also emit Verve-compatible event aliases.
+
+    The legacy frontend (cli/static/style.css era) and the new Verve drop-in
+    expect slightly different field shapes. We emit BOTH so neither breaks:
+
+      • agent_status: legacy uses long agent names ("Market Analyst") and
+        statuses pending/in_progress/completed/skipped. Verve expects short
+        keys ("market", "bull", "trader", "risk", "portfolio") and statuses
+        wait/live/done. We always publish both shapes.
+      • message: legacy uses {type, content}. Verve uses {agent, text, round?}.
+        We add an alias when we can infer agent from context (Bull/Bear).
+      • tool_call: legacy uses {tool}. Verve uses {name}. We populate both.
+      • decision: legacy fires inside symbol_done. Verve listens for an
+        explicit 'decision' event. The runner emits one explicitly.
+    """
+    AGENT_LONG_TO_SHORT = {
+        "Market Analyst":       "market",
+        "Social Analyst":       "social",
+        "News Analyst":         "news",
+        "Fundamentals Analyst": "fundamentals",
+        "Bull Researcher":      "bull",
+        "Bear Researcher":      "bear",
+        "Research Manager":     "research",  # not in Verve roster but harmless
+        "Trader":               "trader",
+        "Aggressive Analyst":   "risk",      # collapse the 3 risk seats to 'risk'
+        "Neutral Analyst":      "risk",
+        "Conservative Analyst": "risk",
+        "Portfolio Manager":    "portfolio",
+    }
+    STATUS_TO_VERVE = {
+        "pending":    "wait",
+        "skipped":    "wait",
+        "in_progress":"live",
+        "completed":  "done",
+    }
+
+    def publish(event: str, data: dict) -> None:
+        # 1) Always send the legacy shape verbatim
+        bus.publish(run_id, event, {"symbol": symbol, **data})
+
+        # 2) Translate to Verve shape where it differs, and send under
+        #    the same event name (additional emission, not replacement)
+        if event == "agent_status":
+            short = AGENT_LONG_TO_SHORT.get(data.get("agent", ""))
+            v_status = STATUS_TO_VERVE.get(data.get("status", ""), data.get("status"))
+            if short and v_status:
+                bus.publish(run_id, "agent_status", {
+                    "symbol": symbol, "agent": short, "status": v_status,
+                })
+        elif event == "agent_states":
+            # Send a per-agent status burst in Verve shape so the Verve UI
+            # can hydrate its initial agent panel.
+            states = data.get("states", {})
+            for long_name, status in states.items():
+                short = AGENT_LONG_TO_SHORT.get(long_name)
+                v_status = STATUS_TO_VERVE.get(status, status)
+                if short and v_status:
+                    bus.publish(run_id, "agent_status", {
+                        "symbol": symbol, "agent": short, "status": v_status,
+                    })
+        elif event == "tool_call":
+            # alias 'tool' → 'name'
+            if "tool" in data and "name" not in data:
+                bus.publish(run_id, "tool_call", {
+                    "symbol": symbol,
+                    "name": data["tool"],
+                    "args": data.get("args"),
+                })
+    return publish
+
+
 def _propagate(run_id: str, symbol: str, snap: dict[str, Any]) -> tuple[str, dict[str, str]]:
     """Pure sync function — invoked inside a thread executor. No DB access.
 
@@ -104,8 +204,10 @@ def _propagate(run_id: str, symbol: str, snap: dict[str, Any]) -> tuple[str, dic
     )
     bus.publish(run_id, "log", {"line": f"[{symbol}] Streaming analysis for {snap['analysis_date']}"})
 
+    publish = _verve_publish_factory(run_id, symbol)
+
     streamer = GraphStreamer(
-        publish=lambda event, data: bus.publish(run_id, event, {"symbol": symbol, **data}),
+        publish=publish,
         selected_analysts=selected_analysts,
     )
     streamer.emit_initial(symbol, snap["analysis_date"])
@@ -190,6 +292,11 @@ async def _run_async(run_id: str) -> None:
                 )
                 decisions[symbol] = decision
                 reports[symbol] = sym_reports
+                # Verve-shape: dedicated `decision` event with rating
+                rating = _extract_rating(decision)
+                bus.publish(run_id, "decision",
+                            {"symbol": symbol, "rating": rating,
+                             "decision_text": decision})
                 bus.publish(run_id, "symbol_done",
                             {"symbol": symbol, "decision": decision,
                              "reports_saved": list(sym_reports.keys())})
@@ -199,6 +306,9 @@ async def _run_async(run_id: str) -> None:
                 bus.publish(run_id, "symbol_error", {"symbol": symbol, "error": str(e)})
                 decisions[symbol] = f"ERROR: {e}"
                 await _set_status(run_id, decisions=dict(decisions), reports=dict(reports))
+
+        # All symbols done
+        bus.publish(run_id, "run_done", {})
 
         # 3. Mark complete
         await _set_status(

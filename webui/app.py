@@ -128,12 +128,15 @@ async def health() -> dict[str, str]:
 
 
 class StartRunRequest(BaseModel):
-    ticker_source: str = Field("manual", description="manual / scan-5 / scan-10 / scan-20")
+    ticker_source: str = Field("manual", description="manual / scan-3 / scan-5 / scan-10 / scan-20")
     symbols: list[str] = Field(default_factory=list, description="Required when ticker_source=manual; can be multiple")
     analysis_date: str = Field(..., description="YYYY-MM-DD")
     analysts: list[str] = Field(default_factory=lambda: ["market", "social", "news", "fundamentals"])
     research_depth: int = 1
     risk_rounds: int = 1
+    # Verve front-end aliases — accepted as fallback if research_depth/risk_rounds aren't set.
+    max_debate_rounds: int | None = None
+    max_risk_discuss_rounds: int | None = None
     language: str = "English"
 
     llm_provider: str = Field(default_factory=lambda: os.getenv("LLM_PROVIDER", "github-copilot"))
@@ -159,6 +162,17 @@ async def start_run(req: StartRunRequest) -> dict[str, str]:
         # can surface it
         pass
 
+    # Honor Verve-style aliases when the new front-end posts them
+    research_depth = req.research_depth
+    risk_rounds = req.risk_rounds
+    if req.max_debate_rounds is not None:
+        research_depth = int(req.max_debate_rounds)
+    if req.max_risk_discuss_rounds is not None:
+        risk_rounds = int(req.max_risk_discuss_rounds)
+    elif req.max_debate_rounds is not None:
+        # If only debate provided, mirror it to risk too (matches TUI default).
+        risk_rounds = int(req.max_debate_rounds)
+
     run_id = str(uuid.uuid4())
     sm = get_sessionmaker()
     async with sm() as session:
@@ -169,8 +183,8 @@ async def start_run(req: StartRunRequest) -> dict[str, str]:
             symbols=symbols,
             analysis_date=req.analysis_date,
             analysts=req.analysts,
-            research_depth=req.research_depth,
-            risk_rounds=req.risk_rounds,
+            research_depth=research_depth,
+            risk_rounds=risk_rounds,
             language=req.language,
             llm_provider=req.llm_provider,
             deep_model=req.deep_model,

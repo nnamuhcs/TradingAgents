@@ -121,7 +121,16 @@ class GraphStreamer:
                 self._processed_message_ids.add(mid)
             mtype, content = _classify(message)
             if content:
+                # Legacy shape: {type, content}
                 self._publish("message", {"type": mtype, "content": content})
+                # Verve shape alias: {agent, text} — best-effort agent inference
+                # from whichever analyst is currently in_progress
+                inferred = self._current_active_short_agent()
+                if inferred:
+                    self._publish("message", {
+                        "agent": inferred,
+                        "text": content,
+                    })
 
             tool_calls = getattr(message, "tool_calls", None)
             if tool_calls:
@@ -140,6 +149,11 @@ class GraphStreamer:
             if new_content and new_content != self._reports.get(key):
                 self._reports[key] = new_content
                 self._publish("report_section", {"section": key, "content": new_content})
+                # Verve alias: short section keys (market / sentiment / news / fundamentals)
+                short_section = key.replace("_report", "")
+                if short_section != key:
+                    self._publish("report_section",
+                                  {"section": short_section, "content": new_content})
                 # mark this analyst completed and the next one in_progress
                 if self._statuses.get(full) != "completed":
                     self._set_status(full, "completed")
@@ -172,6 +186,8 @@ class GraphStreamer:
         if trader_plan and trader_plan != self._reports.get("trader_investment_plan"):
             self._reports["trader_investment_plan"] = trader_plan
             self._publish("report_section", {"section": "trader_investment_plan", "content": trader_plan})
+            # Verve alias
+            self._publish("report_section", {"section": "trader_plan", "content": trader_plan})
             if self._statuses.get("Trader") != "completed":
                 self._set_status("Trader", "completed")
                 self._set_status("Aggressive Analyst", "in_progress")
@@ -232,3 +248,26 @@ class GraphStreamer:
             if self._statuses.get(full) == "pending":
                 self._set_status(full, "in_progress")
                 return
+
+    def _current_active_short_agent(self) -> str | None:
+        """Return the short Verve-style agent key for whichever agent is
+        currently in_progress, e.g. 'market', 'bull', 'trader'. None if no
+        single agent is active."""
+        long_to_short = {
+            "Market Analyst":       "market",
+            "Social Analyst":       "social",
+            "News Analyst":         "news",
+            "Fundamentals Analyst": "fundamentals",
+            "Bull Researcher":      "bull",
+            "Bear Researcher":      "bear",
+            "Research Manager":     "research",
+            "Trader":               "trader",
+            "Aggressive Analyst":   "risk",
+            "Neutral Analyst":      "risk",
+            "Conservative Analyst": "risk",
+            "Portfolio Manager":    "portfolio",
+        }
+        for long, status in self._statuses.items():
+            if status == "in_progress":
+                return long_to_short.get(long)
+        return None
